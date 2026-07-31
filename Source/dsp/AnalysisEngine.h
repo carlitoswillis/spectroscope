@@ -66,8 +66,19 @@ public:
     LockFreeQueue<EnvelopePoint>& getEnvelopeQueue() noexcept { return envelopeQueue; }
     ColumnRing& getSpectrumColumns() noexcept                 { return spectrumColumns; }
 
+    /** The same mid columns as getSpectrumColumns(), duplicated because each
+        SPSC ring supports exactly one consumer and the spectrogram and analyser
+        may now be visible at once. Single consumer: SpectrumView.
+    */
+    ColumnRing& getAnalyserColumns() noexcept                 { return analyserColumns; }
+
     /** Every sample of every processed hop. Single consumer: StereoFieldView. */
     LockFreeQueue<StereoSample>& getStereoSamples() noexcept  { return stereoSamples; }
+
+    /** The same samples as getStereoSamples(), duplicated for the same reason
+        as the analyser columns. Single consumer: OscilloscopeView.
+    */
+    LockFreeQueue<StereoSample>& getScopeSamples() noexcept   { return scopeSamples; }
 
     /** One item per hop. Single consumer: LoudnessHistoryView. */
     LockFreeQueue<LoudnessPoint>& getLoudnessQueue() noexcept { return loudnessQueue; }
@@ -121,8 +132,10 @@ private:
     SampleRingBuffer ringBuffer;
     LockFreeQueue<EnvelopePoint> envelopeQueue;
     LockFreeQueue<StereoSample> stereoSamples;
+    LockFreeQueue<StereoSample> scopeSamples;
     LockFreeQueue<LoudnessPoint> loudnessQueue;
     ColumnRing spectrumColumns;
+    ColumnRing analyserColumns;
     ColumnRing sideSpectrumColumns;
     StftAnalyzer stft;
     StftAnalyzer sideStft;

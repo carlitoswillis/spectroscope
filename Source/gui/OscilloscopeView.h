@@ -29,6 +29,9 @@ public:
     */
     void setActive (bool shouldBeActive);
 
+    /** Drops the sample history — the sweep goes flat until new audio lands. */
+    void clear();
+
 private:
     void timerCallback() override;
     void drawGraticule (juce::Graphics&);

@@ -8,7 +8,13 @@ namespace
     constexpr int labelHeight  = 13;
     constexpr int footerHeight = 16;
     constexpr int screenInset  = 4;
-    constexpr int paneGap      = 12;
+    constexpr int paneGap      = 10;
+    constexpr int railHeight   = 18;
+    constexpr int switchWidth  = 66;
+    constexpr int switchGap    = 4;
+
+    // Relative heights when a pane is enabled, normalised over the enabled set.
+    constexpr float paneWeights[] = { 0.62f, 1.0f, 1.0f, 1.0f, 0.75f, 0.75f };
 }
 
 SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (SpectroscopeAudioProcessor& p)
@@ -37,7 +43,11 @@ SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (Spectroscope
     // Last, so the glass sits in front of everything behind it.
     addAndMakeVisible (crtOverlay);
 
-    applyViewMode (processor.getViewMode());
+    applyPanes (processor.getPanesMask());
+
+    // Cmd+R clears the displays. Hosts usually eat keystrokes before a plugin
+    // editor sees them, which is what the CLR switch is for.
+    setWantsKeyboardFocus (true);
 
     setResizable (true, true);
     setResizeLimits (520, 360, 4096, 2400);
@@ -46,25 +56,74 @@ SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (Spectroscope
     startTimerHz (12);
 }
 
-void SpectroscopeAudioProcessorEditor::applyViewMode (int mode)
+juce::Component& SpectroscopeAudioProcessorEditor::paneView (int index) noexcept
 {
-    processor.setViewMode (mode);
-    mode = processor.getViewMode();
+    juce::Component* const views[numPanes] = { &waveformView, &spectrogramView, &spectrumView,
+                                               &stereoFieldView, &loudnessView, &oscilloscopeView };
+    return *views[index];
+}
 
-    // Only the visible view drains its queues.
-    juce::Component* const views[] = { &spectrogramView, &spectrumView, &stereoFieldView,
-                                       &loudnessView, &oscilloscopeView };
+void SpectroscopeAudioProcessorEditor::applyPanes (int mask)
+{
+    // The processor coerces an empty mask to the waveform, so the console
+    // can never go dark whatever it was handed.
+    processor.setPanesMask (mask);
+    mask = processor.getPanesMask();
 
-    for (int i = 0; i < 5; ++i)
-        views[i]->setVisible (i == mode);
+    for (int i = 0; i < numPanes; ++i)
+        paneView (i).setVisible ((mask & (1 << i)) != 0);
 
-    spectrogramView.setActive (mode == 0);
-    spectrumView.setActive (mode == 1);
-    stereoFieldView.setActive (mode == 2);
-    loudnessView.setActive (mode == 3);
-    oscilloscopeView.setActive (mode == 4);
+    // Each queue owner only drains while active. The waveform samples its
+    // ring in place rather than draining, so visibility alone gates it.
+    spectrogramView.setActive ((mask & (1 << 1)) != 0);
+    spectrumView.setActive ((mask & (1 << 2)) != 0);
+    stereoFieldView.setActive ((mask & (1 << 3)) != 0);
+    loudnessView.setActive ((mask & (1 << 4)) != 0);
+    oscilloscopeView.setActive ((mask & (1 << 5)) != 0);
 
+    resized();
     repaint();
+}
+
+void SpectroscopeAudioProcessorEditor::clearAllDisplays()
+{
+    waveformView.clear();
+    spectrogramView.clear();
+    spectrumView.clear();
+    stereoFieldView.clear();
+    loudnessView.clear();
+    oscilloscopeView.clear();
+}
+
+void SpectroscopeAudioProcessorEditor::toggleFullScreen()
+{
+    if (! juce::JUCEApplicationBase::isStandaloneApp())
+        return;
+
+    auto& desktop = juce::Desktop::getInstance();
+    auto* window = getTopLevelComponent();
+
+    desktop.setKioskModeComponent (desktop.getKioskModeComponent() == window ? nullptr : window,
+                                   false);
+    repaint (headerArea.expanded (2));
+}
+
+bool SpectroscopeAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
+{
+    if (key.getModifiers().isCommandDown() && key.isKeyCurrentlyDown ('R'))
+    {
+        clearAllDisplays();
+        return true;
+    }
+
+    if (key == juce::KeyPress::escapeKey
+        && juce::Desktop::getInstance().getKioskModeComponent() == getTopLevelComponent())
+    {
+        toggleFullScreen();
+        return true;
+    }
+
+    return false;
 }
 
 void SpectroscopeAudioProcessorEditor::cycleTheme()
@@ -84,16 +143,48 @@ void SpectroscopeAudioProcessorEditor::mouseDown (const juce::MouseEvent& event)
     const auto position = event.getPosition();
 
     if (themeSwitchArea.contains (position))
+    {
         cycleTheme();
-    else if (spectralLabelArea.contains (position))
-        applyViewMode ((processor.getViewMode() + 1) % 5);
+        return;
+    }
+
+    if (clearSwitchArea.contains (position))
+    {
+        clearAllDisplays();
+        return;
+    }
+
+    if (fullScreenSwitchArea.contains (position))
+    {
+        toggleFullScreen();
+        return;
+    }
+
+    for (int i = 0; i < numPanes; ++i)
+    {
+        if (switchAreas[i].contains (position))
+        {
+            // Switching off the last lit pane is ignored rather than having
+            // the coercion silently re-light a different one.
+            const auto mask = processor.getPanesMask() ^ (1 << i);
+
+            if (mask != 0)
+                applyPanes (mask);
+
+            return;
+        }
+    }
 }
 
 void SpectroscopeAudioProcessorEditor::mouseMove (const juce::MouseEvent& event)
 {
     const auto position = event.getPosition();
-    const auto clickable = themeSwitchArea.contains (position)
-                        || spectralLabelArea.contains (position);
+    auto clickable = themeSwitchArea.contains (position)
+                  || clearSwitchArea.contains (position)
+                  || fullScreenSwitchArea.contains (position);
+
+    for (const auto& area : switchAreas)
+        clickable = clickable || area.contains (position);
 
     setMouseCursor (clickable ? juce::MouseCursor::PointingHandCursor
                               : juce::MouseCursor::NormalCursor);
@@ -135,30 +226,75 @@ void SpectroscopeAudioProcessorEditor::resized()
     footerArea = area.removeFromBottom (footerHeight);
     area.removeFromBottom (4);
 
-    // The livery switch sits between the lamp cluster and the readout.
+    // The livery switch sits between the lamp cluster and the readout, with
+    // the display-clear and fullscreen switches to its left.
     themeSwitchArea = headerArea.withTrimmedRight (160)
                                 .removeFromRight (juce::jmin (128, headerArea.getWidth() / 4))
                                 .withTrimmedTop (4).withHeight (20);
 
-    // Waveform takes the top third, the spectral view the rest. Each gets a
-    // silkscreened caption above it, and both keep the same left and right
-    // edges so their time axes line up pixel for pixel.
+    clearSwitchArea = themeSwitchArea.translated (-themeSwitchArea.getWidth(), 0)
+                                     .removeFromRight (40).translated (-6, 0);
+
+    fullScreenSwitchArea = juce::JUCEApplicationBase::isStandaloneApp()
+        ? clearSwitchArea.translated (-46, 0)
+        : juce::Rectangle<int>();
+
+    // The switch rail sits directly under the header hairline: one latching
+    // channel switch per pane, left-aligned.
     area.removeFromTop (2);
 
-    auto upper = area.removeFromTop (juce::roundToInt (area.getHeight() * 0.34f));
-    waveformLabelArea = upper.removeFromTop (labelHeight);
-    waveformView.setBounds (upper.reduced (screenInset, 0));
+    auto rail = area.removeFromTop (railHeight);
+
+    for (auto& switchArea : switchAreas)
+    {
+        switchArea = rail.removeFromLeft (switchWidth);
+        rail.removeFromLeft (switchGap);
+    }
 
     area.removeFromTop (paneGap);
 
-    spectralLabelArea = area.removeFromTop (labelHeight);
+    // Enabled panes stack vertically, each a caption row over its screen,
+    // heights split by weight. All panes share left and right edges so the
+    // time-axis instruments line up pixel for pixel. Disabled panes keep
+    // stale bounds — they are invisible, and paint() skips their surrounds.
+    const auto mask = processor.getPanesMask();
 
-    const auto lowerScreen = area.reduced (screenInset, 0);
-    spectrogramView.setBounds (lowerScreen);
-    spectrumView.setBounds (lowerScreen);
-    stereoFieldView.setBounds (lowerScreen);
-    loudnessView.setBounds (lowerScreen);
-    oscilloscopeView.setBounds (lowerScreen);
+    auto enabledCount = 0;
+    auto totalWeight = 0.0f;
+
+    for (int i = 0; i < numPanes; ++i)
+    {
+        if ((mask & (1 << i)) != 0)
+        {
+            ++enabledCount;
+            totalWeight += paneWeights[i];
+        }
+    }
+
+    const auto viewSpace = area.getHeight()
+                         - enabledCount * labelHeight
+                         - (enabledCount - 1) * paneGap;
+
+    auto placed = 0;
+
+    for (int i = 0; i < numPanes; ++i)
+    {
+        if ((mask & (1 << i)) == 0)
+            continue;
+
+        if (placed > 0)
+            area.removeFromTop (paneGap);
+
+        // The last pane absorbs the rounding remainder.
+        const auto last = (++placed == enabledCount);
+        const auto viewHeight = last
+            ? area.getHeight() - labelHeight
+            : juce::roundToInt (static_cast<float> (viewSpace) * paneWeights[i] / totalWeight);
+
+        auto pane = area.removeFromTop (labelHeight + juce::jmax (0, viewHeight));
+        paneLabelAreas[i] = pane.removeFromTop (labelHeight);
+        paneView (i).setBounds (pane.reduced (screenInset, 0));
+    }
 }
 
 void SpectroscopeAudioProcessorEditor::paintScreenSurround (juce::Graphics& g,
@@ -180,6 +316,31 @@ void SpectroscopeAudioProcessorEditor::paintScreenSurround (juce::Graphics& g,
     g.setColour (Theme::palette().boneDim.withAlpha (0.65f));
     g.setFont (Theme::mono (9.0f));
     g.drawText (annotation, label, juce::Justification::centredRight);
+}
+
+void SpectroscopeAudioProcessorEditor::paintSwitchRail (juce::Graphics& g)
+{
+    const juce::String labels[numPanes] = { "WAVE", "DENSITY", "SPECTRUM",
+                                            "FIELD", "CHART", "SCOPE" };
+    const auto mask = processor.getPanesMask();
+
+    for (int i = 0; i < numPanes; ++i)
+    {
+        const auto engaged = (mask & (1 << i)) != 0;
+        auto plate = switchAreas[i];
+
+        g.setColour (engaged ? Theme::palette().amber.withAlpha (0.7f)
+                             : Theme::palette().boneDim.withAlpha (0.3f));
+        g.drawRect (plate, 1);
+
+        Theme::drawLamp (g, plate.removeFromLeft (14).toFloat().withSizeKeepingCentre (5.0f, 5.0f),
+                         Theme::palette().amber, engaged);
+
+        g.setColour (engaged ? Theme::palette().bone
+                             : Theme::palette().boneDim.withAlpha (0.5f));
+        g.setFont (Theme::mono (8.0f, true));
+        g.drawText (labels[i], plate.withTrimmedRight (3), juce::Justification::centredLeft);
+    }
 }
 
 void SpectroscopeAudioProcessorEditor::paintHeader (juce::Graphics& g)
@@ -266,6 +427,27 @@ void SpectroscopeAudioProcessorEditor::paintHeader (juce::Graphics& g)
                     themeSwitchArea, juce::Justification::centred);
     }
 
+    // Momentary switches beside it: display clear, and — standalone only —
+    // fullscreen. Same silkscreen as the livery switch, so the header reads
+    // as one bank of controls.
+    const auto drawMomentary = [&g] (juce::Rectangle<int> area, juce::StringRef label)
+    {
+        if (area.isEmpty())
+            return;
+
+        g.setColour (Theme::palette().boneDim.withAlpha (0.5f));
+        g.drawRect (area, 1);
+
+        g.setColour (Theme::palette().bone.withAlpha (0.8f));
+        g.setFont (Theme::mono (8.5f, true));
+        g.drawText (Theme::spaced (label), area, juce::Justification::centred);
+    };
+
+    drawMomentary (clearSwitchArea, "CLR");
+    drawMomentary (fullScreenSwitchArea,
+                   juce::Desktop::getInstance().getKioskModeComponent() == getTopLevelComponent()
+                       ? "EXIT" : "FULL");
+
     // Lamp cluster between the title and the switch.
     const juce::String lampNames[] = { "PWR", "SIG", "ERR" };
     const juce::Colour lampColours[] = { Theme::palette().amber, Theme::palette().phosphor, Theme::palette().rust };
@@ -303,24 +485,27 @@ void SpectroscopeAudioProcessorEditor::paint (juce::Graphics& g)
                           static_cast<float> (headerArea.getX()),
                           static_cast<float> (headerArea.getRight()));
 
+    paintSwitchRail (g);
+
     const auto nyquist = processor.getCurrentSampleRate() * 0.5;
     const auto kHz = nyquist > 0.0 ? juce::String (nyquist / 1000.0, 1) + " KHZ" : juce::String ("-- KHZ");
 
-    paintScreenSurround (g, waveformView.getBounds(), waveformLabelArea,
-                         "WAVEFORM", "CHANNEL SUM / PEAK + RMS");
+    const juce::String captions[numPanes] = { "WAVEFORM", "SPECTRAL DENSITY", "SPECTRUM",
+                                              "STEREO FIELD", "LEVEL CHART", "OSCILLOSCOPE" };
+    const juce::String annotations[numPanes] = { "CHANNEL SUM / PEAK + RMS",
+                                                 "LOG 30 HZ-" + kHz,
+                                                 "MID + SIDE + PEAK HOLD",
+                                                 "LISSAJOUS + VU + CORR",
+                                                 "MOMENTARY / 60 S",
+                                                 "TRIGGERED SWEEP" };
 
-    const juce::String captions[] = { "SPECTRAL DENSITY", "SPECTRUM", "STEREO FIELD",
-                                      "LEVEL CHART", "OSCILLOSCOPE" };
-    const juce::String annotations[] = { "LOG 30 HZ-" + kHz + " / CLICK FOR SPECTRUM",
-                                         "MID + SIDE + PEAK HOLD / CLICK FOR STEREO FIELD",
-                                         "LISSAJOUS + VU + CORR / CLICK FOR LEVEL CHART",
-                                         "MOMENTARY 60 S / CLICK FOR OSCILLOSCOPE",
-                                         "TRIGGERED SWEEP / CLICK FOR DENSITY" };
+    // Hidden panes keep stale bounds, so only the visible ones get surrounds.
+    const auto mask = processor.getPanesMask();
 
-    const auto mode = processor.getViewMode();
-
-    paintScreenSurround (g, spectrogramView.getBounds(), spectralLabelArea,
-                         captions[mode], annotations[mode]);
+    for (int i = 0; i < numPanes; ++i)
+        if ((mask & (1 << i)) != 0)
+            paintScreenSurround (g, paneView (i).getBounds(), paneLabelAreas[i],
+                                 captions[i], annotations[i]);
 
     // Footer readouts.
     auto footer = footerArea;

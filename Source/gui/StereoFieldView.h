@@ -30,6 +30,9 @@ public:
     */
     void setActive (bool shouldBeActive);
 
+    /** Wipes the persistence glass and lets the needles fall. */
+    void clear();
+
 private:
     void timerCallback() override;
 

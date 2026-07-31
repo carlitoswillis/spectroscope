@@ -26,6 +26,15 @@ void SpectrogramView::themeChanged()
     repaint();
 }
 
+void SpectrogramView::clear()
+{
+    engine.getSpectrumColumns().discardPending();
+    historyWrite = 0;
+    numStored = 0;
+    rebuildImage();
+    repaint();
+}
+
 void SpectrogramView::setActive (bool shouldBeActive)
 {
     if (shouldBeActive == isTimerRunning())

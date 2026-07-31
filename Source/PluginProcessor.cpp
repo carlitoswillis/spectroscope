@@ -62,7 +62,7 @@ void SpectroscopeAudioProcessor::getStateInformation (juce::MemoryBlock& destDat
     // No audio parameters — the state is purely how the display is dressed.
     juce::XmlElement state ("SpectroscopeState");
     state.setAttribute ("theme", getThemeIndex());
-    state.setAttribute ("view", getViewMode());
+    state.setAttribute ("panes", getPanesMask());
 
     copyXmlToBinary (state, destData);
 }
@@ -75,11 +75,22 @@ void SpectroscopeAudioProcessor::setStateInformation (const void* data, int size
         {
             setThemeIndex (state->getIntAttribute ("theme", 0));
 
-            // Sessions saved before the four-mode cycle stored a bool.
-            if (state->hasAttribute ("view"))
-                setViewMode (state->getIntAttribute ("view", 0));
+            if (state->hasAttribute ("panes"))
+            {
+                setPanesMask (state->getIntAttribute ("panes", 0b000011));
+            }
+            else if (state->hasAttribute ("view"))
+            {
+                // Sessions saved before the multi-pane console stored a single
+                // lower-screen index: keep the waveform plus that instrument.
+                const auto view = juce::jlimit (0, 4, state->getIntAttribute ("view", 0));
+                setPanesMask (1 | (1 << (view + 1)));
+            }
             else
-                setViewMode (state->getBoolAttribute ("spectrum", false) ? 1 : 0);
+            {
+                // Older still, a bool chose spectrogram or spectrum.
+                setPanesMask (state->getBoolAttribute ("spectrum", false) ? 0b101 : 0b011);
+            }
         }
     }
 }

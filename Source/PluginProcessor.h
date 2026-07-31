@@ -54,8 +54,17 @@ public:
     int getThemeIndex() const noexcept       { return themeIndex.load (std::memory_order_relaxed); }
     void setThemeIndex (int index) noexcept  { themeIndex.store (index, std::memory_order_relaxed); }
 
-    int getViewMode() const noexcept         { return viewMode.load (std::memory_order_relaxed); }
-    void setViewMode (int mode) noexcept     { viewMode.store (juce::jlimit (0, 4, mode), std::memory_order_relaxed); }
+    /** Which panes the console shows, one bit per instrument: waveform,
+        spectral density, spectrum, stereo field, level chart, oscilloscope.
+        An empty mask is coerced to the waveform so the console is never dark.
+    */
+    int getPanesMask() const noexcept        { return panesMask.load (std::memory_order_relaxed); }
+
+    void setPanesMask (int mask) noexcept
+    {
+        mask &= 0b111111;
+        panesMask.store (mask != 0 ? mask : 1, std::memory_order_relaxed);
+    }
 
 private:
     AnalysisEngine analysisEngine;
@@ -64,7 +73,7 @@ private:
     std::atomic<int>    currentBlockSize  { 0 };
 
     std::atomic<int> themeIndex { 0 };
-    std::atomic<int> viewMode   { 0 };
+    std::atomic<int> panesMask  { 0b000011 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectroscopeAudioProcessor)
 };

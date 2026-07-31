@@ -32,6 +32,9 @@ public:
     /** Re-fetches the palette's colour table and repaints history in it. */
     void themeChanged();
 
+    /** Drops all accumulated history — dark glass, as though just powered on. */
+    void clear();
+
     /** The spectrum column queue feeds whichever view is active; an inactive
         view stops its timer so it never steals columns from the other.
     */

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <array>
 #include "PluginProcessor.h"
 #include "gui/WaveformView.h"
 #include "gui/SpectrogramView.h"
@@ -11,15 +12,15 @@
 #include "gui/CrtOverlay.h"
 
 /**
-    Waveform above, analysis view below, set into a chassis behind CRT glass.
+    A console of instrument panes set into a chassis behind CRT glass.
 
-    The lower screen cycles through five modes: a scrolling spectrogram sharing
-    the waveform's time axis, an instantaneous spectrum with peak hold, a stereo
-    field display (Lissajous scope with VU and correlation meters), a
-    momentary-loudness history chart, and a triggered-sweep oscilloscope. Click
-    the screen's label plate to advance.
-    The livery switch in the header cycles the palettes; both choices persist
-    in the plugin state.
+    Six instruments — waveform, scrolling spectrogram, instantaneous spectrum
+    with peak hold, stereo field (Lissajous scope with VU and correlation
+    meters), momentary-loudness history chart, and triggered-sweep
+    oscilloscope — show in any combination, stacked vertically. The switch
+    rail under the header latches each pane in or out; at least one always
+    stays lit. The livery switch in the header cycles the palettes; both the
+    pane mask and the livery persist in the plugin state.
 */
 class SpectroscopeAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                private juce::Timer
@@ -32,18 +33,29 @@ public:
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    bool keyPressed (const juce::KeyPress&) override;
 
 private:
     void timerCallback() override;
     void paintHeader (juce::Graphics&);
+    void paintSwitchRail (juce::Graphics&);
     void paintScreenSurround (juce::Graphics&,
                               juce::Rectangle<int> screen,
                               juce::Rectangle<int> labelArea,
                               juce::StringRef caption,
                               juce::StringRef annotation);
 
-    void applyViewMode (int mode);
+    void applyPanes (int mask);
     void cycleTheme();
+
+    /** Wipes every instrument's accumulated history — new song, dark glass. */
+    void clearAllDisplays();
+
+    /** Standalone only: the whole console takes the display. */
+    void toggleFullScreen();
+
+    static constexpr int numPanes = 6;
+    juce::Component& paneView (int index) noexcept;
 
     SpectroscopeAudioProcessor& processor;
     WaveformView waveformView;
@@ -56,9 +68,11 @@ private:
 
     juce::Rectangle<int> headerArea;
     juce::Rectangle<int> footerArea;
-    juce::Rectangle<int> waveformLabelArea;
-    juce::Rectangle<int> spectralLabelArea;
     juce::Rectangle<int> themeSwitchArea;
+    juce::Rectangle<int> clearSwitchArea;
+    juce::Rectangle<int> fullScreenSwitchArea;
+    std::array<juce::Rectangle<int>, numPanes> switchAreas;
+    std::array<juce::Rectangle<int>, numPanes> paneLabelAreas;
 
     juce::String readoutText { "STANDBY" };
     bool signalPresent = false;

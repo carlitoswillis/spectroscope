@@ -21,7 +21,7 @@ void SpectrumView::setActive (bool shouldBeActive)
 
     if (shouldBeActive)
     {
-        engine.getSpectrumColumns().discardPending();
+        engine.getAnalyserColumns().discardPending();
         engine.getSideSpectrumColumns().discardPending();
 
         // Start from silence rather than whatever the last look held.
@@ -35,6 +35,17 @@ void SpectrumView::setActive (bool shouldBeActive)
     {
         stopTimer();
     }
+}
+
+void SpectrumView::clear()
+{
+    engine.getAnalyserColumns().discardPending();
+    engine.getSideSpectrumColumns().discardPending();
+
+    std::fill (averaged.begin(), averaged.end(), StftAnalyzer::floorDb);
+    std::fill (peakHold.begin(), peakHold.end(), StftAnalyzer::floorDb);
+    std::fill (averagedSide.begin(), averagedSide.end(), StftAnalyzer::floorDb);
+    repaint();
 }
 
 void SpectrumView::timerCallback()
@@ -58,7 +69,7 @@ void SpectrumView::timerCallback()
 
     for (;;)
     {
-        const auto numRead = engine.getSpectrumColumns().pop (scratch.data(), maxColumnsPerFrame);
+        const auto numRead = engine.getAnalyserColumns().pop (scratch.data(), maxColumnsPerFrame);
 
         if (numRead <= 0)
             break;

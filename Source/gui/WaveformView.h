@@ -23,6 +23,9 @@ public:
 
     void paint (juce::Graphics&) override;
 
+    /** Drops all accumulated history — dark glass, as though just powered on. */
+    void clear();
+
     /** Seconds currently visible, for the time axis to label. */
     double getVisibleTimeSpan() const noexcept;
 

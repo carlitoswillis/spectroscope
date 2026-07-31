@@ -20,7 +20,7 @@ void OscilloscopeView::setActive (bool shouldBeActive)
 
     if (shouldBeActive)
     {
-        engine.getStereoSamples().discardPending();
+        engine.getScopeSamples().discardPending();
 
         // Start from silence rather than whatever the last look held.
         std::fill (ring.begin(), ring.end(), 0.0f);
@@ -36,6 +36,17 @@ void OscilloscopeView::setActive (bool shouldBeActive)
     }
 }
 
+void OscilloscopeView::clear()
+{
+    engine.getScopeSamples().discardPending();
+
+    std::fill (ring.begin(), ring.end(), 0.0f);
+    head = 0;
+    numStored = 0;
+    lastFrameTriggered = false;
+    repaint();
+}
+
 void OscilloscopeView::timerCallback()
 {
     auto totalRead = 0;
@@ -44,7 +55,7 @@ void OscilloscopeView::timerCallback()
     // into an unbounded copy.
     for (;;)
     {
-        const auto numRead = engine.getStereoSamples().pop (scratch.data(), maxSamplesPerFrame);
+        const auto numRead = engine.getScopeSamples().pop (scratch.data(), maxSamplesPerFrame);
 
         if (numRead <= 0)
             break;

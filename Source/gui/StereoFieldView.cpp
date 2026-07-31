@@ -78,6 +78,19 @@ juce::Rectangle<int> StereoFieldView::correlationStrip() const noexcept
     return { square.getX(), square.getBottom() + gap, square.getWidth(), correlationHeight };
 }
 
+void StereoFieldView::clear()
+{
+    engine.getStereoSamples().discardPending();
+
+    if (persistence.isValid())
+        persistence.clear (persistence.getBounds(), Theme::palette().screenBlack);
+
+    leftNeedle = 0.0f;
+    rightNeedle = 0.0f;
+    correlationDisplay = 1.0f;
+    repaint();
+}
+
 void StereoFieldView::resized()
 {
     const auto square = scopeSquare();

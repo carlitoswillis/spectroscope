@@ -15,6 +15,14 @@ WaveformView::WaveformView (AnalysisEngine& e)
     startTimerHz (60);
 }
 
+void WaveformView::clear()
+{
+    engine.getEnvelopeQueue().discardPending();
+    head = 0;
+    numStored = 0;
+    repaint();
+}
+
 WaveformView::~WaveformView()
 {
     engine.removeConsumer();

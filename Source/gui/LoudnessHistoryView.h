@@ -27,6 +27,9 @@ public:
     */
     void setActive (bool shouldBeActive);
 
+    /** Tears the chart off the recorder — history and readout start fresh. */
+    void clear();
+
 private:
     void timerCallback() override;
     void drawChartPaper (juce::Graphics&);

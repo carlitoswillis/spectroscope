@@ -42,11 +42,13 @@ void AnalysisEngine::prepare (double sampleRate, int maximumBlockSize, int numCh
     // Columns are much larger, so a shorter backlog. Two seconds is still far
     // more than one frame's worth of catching up.
     spectrumColumns.prepare (stft.getNumBins(), juce::roundToInt (sampleRate * 2.0 / hopSize));
+    analyserColumns.prepare (stft.getNumBins(), juce::roundToInt (sampleRate * 2.0 / hopSize));
     sideSpectrumColumns.prepare (stft.getNumBins(), juce::roundToInt (sampleRate * 2.0 / hopSize));
 
     // The vectorscope trace carries every sample, so one second is already a
     // large backlog; anything older than that is stale for display purposes.
     stereoSamples.prepare (juce::roundToInt (sampleRate));
+    scopeSamples.prepare (juce::roundToInt (sampleRate));
 
     smoothedCorrelation.store (1.0f, std::memory_order_relaxed);
     leftRms.store (0.0f, std::memory_order_relaxed);
@@ -149,8 +151,13 @@ void AnalysisEngine::processPendingAudio()
         envelopeQueue.push (point);
         loudnessQueue.push ({ juce::Decibels::gainToDecibels (point.rms, -100.0f) });
 
+        // Two rings, one column: the spectrogram and analyser each own an SPSC
+        // ring, so the same data goes to both rather than sharing a consumer.
         if (stft.processHop (mono, columnScratch.data()))
+        {
             spectrumColumns.push (columnScratch.data());
+            analyserColumns.push (columnScratch.data());
+        }
 
         // Mono input has no right channel and no side content: both channels
         // read as channel 0, the side signal is silence, and correlation is 1.
@@ -172,8 +179,13 @@ void AnalysisEngine::processPendingAudio()
         if (sideStft.processHop (side, sideColumnScratch.data()))
             sideSpectrumColumns.push (sideColumnScratch.data());
 
+        // Likewise for the vectorscope and oscilloscope: one pass over the hop,
+        // one push into each view's queue.
         for (int i = 0; i < hopSize; ++i)
+        {
             stereoSamples.push ({ left[i], right[i] });
+            scopeSamples.push ({ left[i], right[i] });
+        }
 
         double sumLR = 0.0, sumLL = 0.0, sumRR = 0.0;
 

@@ -33,6 +33,9 @@ public:
     */
     void setActive (bool shouldBeActive);
 
+    /** Drops the averages and the peak-hold ghost back to the floor. */
+    void clear();
+
 private:
     void timerCallback() override;
     void drawGraticule (juce::Graphics&);

@@ -37,6 +37,18 @@ void LoudnessHistoryView::setActive (bool shouldBeActive)
     }
 }
 
+void LoudnessHistoryView::clear()
+{
+    engine.getLoudnessQueue().discardPending();
+
+    std::fill (history.begin(), history.end(), -100.0f);
+    writeIndex = 0;
+    validCount = 0;
+    targetDb = -100.0f;
+    smoothedDb = -100.0f;
+    repaint();
+}
+
 void LoudnessHistoryView::timerCallback()
 {
     const auto rate = engine.getSampleRate();
