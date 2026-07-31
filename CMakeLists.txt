@@ -40,7 +40,10 @@ juce_add_plugin(Spectroscope
 
 target_sources(Spectroscope PRIVATE
     Source/PluginProcessor.cpp
-    Source/PluginEditor.cpp)
+    Source/PluginEditor.cpp
+    Source/dsp/SampleRingBuffer.cpp
+    Source/dsp/AnalysisEngine.cpp
+    Source/gui/WaveformView.cpp)
 
 target_compile_definitions(Spectroscope PUBLIC
     JUCE_WEB_BROWSER=0
@@ -58,3 +61,30 @@ target_link_libraries(Spectroscope
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+#==============================================================================
+# Headless DSP tests. These cover the lock-free plumbing and the analysis maths,
+# which is the part that can be verified without a display or an audio device.
+enable_testing()
+
+juce_add_console_app(SpectroscopeTests PRODUCT_NAME "SpectroscopeTests")
+
+target_sources(SpectroscopeTests PRIVATE
+    Tests/DspTests.cpp
+    Source/dsp/SampleRingBuffer.cpp
+    Source/dsp/AnalysisEngine.cpp)
+
+target_compile_definitions(SpectroscopeTests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_UNIT_TESTS=1
+    JUCE_STANDALONE_APPLICATION=1)
+
+target_link_libraries(SpectroscopeTests
+    PRIVATE
+        juce::juce_audio_basics
+    PUBLIC
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+
+add_test(NAME dsp COMMAND SpectroscopeTests)

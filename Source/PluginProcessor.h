@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "dsp/AnalysisEngine.h"
 
 /**
     Analyser front-end. Audio passes through bit-for-bit untouched and the
@@ -15,6 +16,10 @@ public:
     void prepareToPlay (double sampleRate, int maximumExpectedSamplesPerBlock) override;
     void releaseResources() override;
     bool isBusesLayoutSupported (const BusesLayout& layouts) const override;
+
+    // Keeps the inherited double-precision overload visible; we only implement
+    // the float one, and hiding it warns.
+    using juce::AudioProcessor::processBlock;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -41,7 +46,11 @@ public:
     double getCurrentSampleRate() const noexcept   { return currentSampleRate.load (std::memory_order_relaxed); }
     int getCurrentBlockSize() const noexcept       { return currentBlockSize.load (std::memory_order_relaxed); }
 
+    AnalysisEngine& getAnalysisEngine() noexcept   { return analysisEngine; }
+
 private:
+    AnalysisEngine analysisEngine;
+
     std::atomic<double> currentSampleRate { 0.0 };
     std::atomic<int>    currentBlockSize  { 0 };
 

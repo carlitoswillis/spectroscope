@@ -2,11 +2,11 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
+#include "gui/WaveformView.h"
 
 /**
-    Phase 1 shell. The layout it establishes — waveform above, spectrogram
-    below, both sharing one horizontal time axis — is the layout the real views
-    drop into in Phases 2 and 3.
+    Waveform above, spectrogram below, both sharing one horizontal time axis.
+    The spectrogram pane is still a placeholder until Phase 3.
 */
 class SpectroscopeAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                private juce::Timer
@@ -23,9 +23,9 @@ private:
     void paintPlaceholder (juce::Graphics&, juce::Rectangle<int> area, const juce::String& label);
 
     SpectroscopeAudioProcessor& processor;
+    WaveformView waveformView;
 
     juce::Rectangle<int> headerArea;
-    juce::Rectangle<int> waveformArea;
     juce::Rectangle<int> spectrogramArea;
     juce::Rectangle<int> timeAxisArea;
 

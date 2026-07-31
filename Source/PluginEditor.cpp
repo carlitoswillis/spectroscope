@@ -8,6 +8,7 @@ namespace
     const juce::Colour textDim      { 0xff6e6e7d };
     const juce::Colour textBright   { 0xffd6d6e0 };
     const juce::Colour accent       { 0xff4fd1c5 };
+    const juce::Colour warning      { 0xffe0a33f };
 
     constexpr int headerHeight   = 34;
     constexpr int timeAxisHeight = 20;
@@ -15,8 +16,12 @@ namespace
 }
 
 SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (SpectroscopeAudioProcessor& p)
-    : AudioProcessorEditor (&p), processor (p)
+    : AudioProcessorEditor (&p),
+      processor (p),
+      waveformView (p.getAnalysisEngine())
 {
+    addAndMakeVisible (waveformView);
+
     setResizable (true, true);
     setResizeLimits (480, 320, 4096, 2400);
     setSize (900, 560);
@@ -28,10 +33,16 @@ void SpectroscopeAudioProcessorEditor::timerCallback()
 {
     const auto rate = processor.getCurrentSampleRate();
     const auto block = processor.getCurrentBlockSize();
+    const auto dropped = processor.getAnalysisEngine().getNumDroppedBlocks();
 
-    const auto text = rate > 0.0
+    auto text = rate > 0.0
         ? juce::String (rate / 1000.0, 1) + " kHz  /  " + juce::String (block) + " smp  /  0 ms latency"
         : juce::String ("no audio yet");
+
+    // Dropped blocks mean the analysis thread fell behind. Audio is unaffected,
+    // but the picture has gaps, so it's worth surfacing rather than hiding.
+    if (dropped > 0)
+        text += "  /  " + juce::String (dropped) + " dropped";
 
     if (text != statusText)
     {
@@ -50,7 +61,7 @@ void SpectroscopeAudioProcessorEditor::resized()
     // Waveform takes the top third, spectrogram the rest. Both are inset by the
     // same amount so their time axes line up pixel for pixel.
     area.removeFromTop (padding / 2);
-    waveformArea = area.removeFromTop (juce::roundToInt (area.getHeight() * 0.32f));
+    waveformView.setBounds (area.removeFromTop (juce::roundToInt (area.getHeight() * 0.32f)));
     area.removeFromTop (padding / 2);
     spectrogramArea = area;
 }
@@ -81,14 +92,19 @@ void SpectroscopeAudioProcessorEditor::paint (juce::Graphics& g)
     g.drawText ("SPECTROSCOPE", header.removeFromLeft (150),
                 juce::Justification::centredLeft);
 
-    g.setColour (accent);
+    g.setColour (statusText.contains ("dropped") ? warning : accent);
     g.setFont (juce::FontOptions (12.0f));
     g.drawText (statusText, header, juce::Justification::centredRight);
 
-    paintPlaceholder (g, waveformArea,    "waveform");
+    g.setColour (panelOutline);
+    g.drawRoundedRectangle (waveformView.getBounds().toFloat().reduced (0.5f), 4.0f, 1.0f);
+
     paintPlaceholder (g, spectrogramArea, "spectrogram");
+
+    const auto span = waveformView.getVisibleTimeSpan();
 
     g.setColour (textDim);
     g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("shared time axis", timeAxisArea, juce::Justification::centred);
+    g.drawText (span > 0.0 ? juce::String (span, 2) + " s visible" : juce::String ("shared time axis"),
+                timeAxisArea, juce::Justification::centred);
 }

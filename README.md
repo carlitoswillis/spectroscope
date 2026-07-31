@@ -11,7 +11,7 @@ latency, so hosts add nothing to the signal path.
 | Phase | What it adds | State |
 |---|---|---|
 | 1 | CMake + JUCE, AU/VST3/Standalone targets, pass-through processor | **done** |
-| 2 | Lock-free capture, waveform view | planned |
+| 2 | Lock-free capture, waveform view | **done** |
 | 3 | STFT spectrogram (CPU) | planned |
 | 4 | OpenGL ring-texture renderer | planned |
 | 5 | Standalone device picker + Apollo routing | planned |
@@ -32,11 +32,17 @@ installs the AU and VST3 into `~/Library/Audio/Plug-Ins/` so Ableton picks them 
 ### Validating
 
 ```bash
-auval -v aufx Spct Cwil                    # Apple's Audio Unit validation
+ctest --test-dir build --output-on-failure  # headless DSP tests
+auval -v aufx Spct Cwil                     # Apple's Audio Unit validation
 pluginval --strictness-level 8 build/Spectroscope_artefacts/RelWithDebInfo/VST3/Spectroscope.vst3
 ```
 
-CI runs both on every push, plus a Linux compile check.
+CI runs all three on every push, plus a Linux compile check.
+
+The DSP tests cover the parts that can be verified without a display or an audio device: the
+ring buffer's ordering across wraps and its drop-rather-than-block behaviour, the queue's ordering
+and fullness handling, and the analysis chain end to end — a known 1 kHz sine in, correct peak and
+RMS out.
 
 ## Seeing audio from outside your DAW
 

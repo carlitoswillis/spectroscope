@@ -15,10 +15,15 @@ void SpectroscopeAudioProcessor::prepareToPlay (double sampleRate, int maximumEx
 {
     currentSampleRate.store (sampleRate, std::memory_order_relaxed);
     currentBlockSize.store (maximumExpectedSamplesPerBlock, std::memory_order_relaxed);
+
+    analysisEngine.prepare (sampleRate,
+                            maximumExpectedSamplesPerBlock,
+                            juce::jmax (1, getTotalNumInputChannels()));
 }
 
 void SpectroscopeAudioProcessor::releaseResources()
 {
+    analysisEngine.release();
 }
 
 bool SpectroscopeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -41,9 +46,10 @@ void SpectroscopeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (auto ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
         buffer.clear (ch, 0, buffer.getNumSamples());
 
-    // Audio is deliberately left untouched. Phase 2 adds a lock-free write of
-    // these samples into the analysis ring buffer here; the buffer itself stays
-    // read-only for the life of this plugin.
+    // The only thing this plugin does on the audio thread: a bounded copy into
+    // a preallocated ring buffer. No allocation, no locks, and the audio itself
+    // is left untouched on its way out.
+    analysisEngine.pushAudio (buffer);
 }
 
 juce::AudioProcessorEditor* SpectroscopeAudioProcessor::createEditor()
