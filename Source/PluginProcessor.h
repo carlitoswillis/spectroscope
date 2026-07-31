@@ -66,14 +66,39 @@ public:
         panesMask.store (mask != 0 ? mask : 1, std::memory_order_relaxed);
     }
 
+    /** Which panes float in their own window, same bit order as the panes
+        mask. Floating is orthogonal to enabled, so no never-dark coercion.
+    */
+    int getFloatingMask() const noexcept     { return floatingMask.load (std::memory_order_relaxed); }
+    void setFloatingMask (int mask) noexcept { floatingMask.store (mask & 0b111111, std::memory_order_relaxed); }
+
+    /** Saved floating-window bounds, "index:x,y,w,h" entries joined with ';'.
+        A String can't be atomic, so a lock stands in for one.
+    */
+    juce::String getWindowLayout() const
+    {
+        const juce::ScopedLock lock (windowLayoutLock);
+        return windowLayout;
+    }
+
+    void setWindowLayout (const juce::String& layout)
+    {
+        const juce::ScopedLock lock (windowLayoutLock);
+        windowLayout = layout;
+    }
+
 private:
     AnalysisEngine analysisEngine;
 
     std::atomic<double> currentSampleRate { 0.0 };
     std::atomic<int>    currentBlockSize  { 0 };
 
-    std::atomic<int> themeIndex { 0 };
-    std::atomic<int> panesMask  { 0b000011 };
+    std::atomic<int> themeIndex   { 0 };
+    std::atomic<int> panesMask    { 0b000011 };
+    std::atomic<int> floatingMask { 0 };
+
+    juce::CriticalSection windowLayoutLock;
+    juce::String windowLayout;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectroscopeAudioProcessor)
 };

@@ -50,6 +50,7 @@ target_sources(Spectroscope PRIVATE
     Source/gui/StereoFieldView.cpp
     Source/gui/LoudnessHistoryView.cpp
     Source/gui/OscilloscopeView.cpp
+    Source/gui/InstrumentWindow.cpp
     Source/gui/CrtOverlay.cpp)
 
 target_compile_definitions(Spectroscope PUBLIC
@@ -123,6 +124,7 @@ if(SPECTROSCOPE_BUILD_PREVIEW)
         Source/gui/StereoFieldView.cpp
         Source/gui/LoudnessHistoryView.cpp
         Source/gui/OscilloscopeView.cpp
+        Source/gui/InstrumentWindow.cpp
         Source/gui/CrtOverlay.cpp)
 
     target_compile_definitions(RenderPreview PRIVATE

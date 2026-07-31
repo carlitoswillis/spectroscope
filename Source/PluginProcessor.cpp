@@ -63,6 +63,8 @@ void SpectroscopeAudioProcessor::getStateInformation (juce::MemoryBlock& destDat
     juce::XmlElement state ("SpectroscopeState");
     state.setAttribute ("theme", getThemeIndex());
     state.setAttribute ("panes", getPanesMask());
+    state.setAttribute ("floating", getFloatingMask());
+    state.setAttribute ("windows", getWindowLayout());
 
     copyXmlToBinary (state, destData);
 }
@@ -74,6 +76,11 @@ void SpectroscopeAudioProcessor::setStateInformation (const void* data, int size
         if (state->hasTagName ("SpectroscopeState"))
         {
             setThemeIndex (state->getIntAttribute ("theme", 0));
+
+            // Sessions from before floating windows carry neither attribute:
+            // the defaults dock everything, exactly as they were saved.
+            setFloatingMask (state->getIntAttribute ("floating", 0));
+            setWindowLayout (state->getStringAttribute ("windows", {}));
 
             if (state->hasAttribute ("panes"))
             {

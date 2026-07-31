@@ -10,6 +10,7 @@
 #include "gui/LoudnessHistoryView.h"
 #include "gui/OscilloscopeView.h"
 #include "gui/CrtOverlay.h"
+#include "gui/InstrumentWindow.h"
 
 /**
     A console of instrument panes set into a chassis behind CRT glass.
@@ -21,6 +22,12 @@
     rail under the header latches each pane in or out; at least one always
     stays lit. The livery switch in the header cycles the palettes; both the
     pane mask and the livery persist in the plugin state.
+
+    Any docked pane can pop out into its own always-on-top InstrumentWindow
+    via the glyph at the right of its caption row; closing the window docks
+    it back. The same view component moves between console and window — never
+    a copy — and the floating set with its window bounds rides the plugin
+    state alongside the pane mask.
 */
 class SpectroscopeAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                private juce::Timer
@@ -48,6 +55,18 @@ private:
     void applyPanes (int mask);
     void cycleTheme();
 
+    /** Lifts a pane's view out of the stack into its own InstrumentWindow. */
+    void floatPane (int index);
+
+    /** Closes a pane's window and returns its view to the console stack. */
+    void dockPane (int index);
+
+    /** Re-serialises every live window's bounds into the processor. */
+    void storeWindowLayout();
+
+    juce::String paneCaption (int index) const;
+    juce::String paneAnnotation (int index) const;
+
     /** Wipes every instrument's accumulated history — new song, dark glass. */
     void clearAllDisplays();
 
@@ -73,11 +92,16 @@ private:
     juce::Rectangle<int> fullScreenSwitchArea;
     std::array<juce::Rectangle<int>, numPanes> switchAreas;
     std::array<juce::Rectangle<int>, numPanes> paneLabelAreas;
+    std::array<juce::Rectangle<int>, numPanes> popOutAreas;
 
     juce::String readoutText { "STANDBY" };
     bool signalPresent = false;
     bool dropsSeen = false;
     int droppedCount = 0;
+
+    // Declared last: the windows borrow views owned above, so they must die
+    // before them — the default destructor then needs no help.
+    std::array<std::unique_ptr<InstrumentWindow>, numPanes> instrumentWindows;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectroscopeAudioProcessorEditor)
 };

@@ -15,6 +15,49 @@ namespace
 
     // Relative heights when a pane is enabled, normalised over the enabled set.
     constexpr float paneWeights[] = { 0.62f, 1.0f, 1.0f, 1.0f, 0.75f, 0.75f };
+
+    /** Finds one pane's entry in the "index:x,y,w,h;..." layout string.
+        Returns an empty rectangle when the pane has none.
+    */
+    juce::Rectangle<int> windowBoundsFromLayout (const juce::String& layout, int index)
+    {
+        for (const auto& entry : juce::StringArray::fromTokens (layout, ";", {}))
+        {
+            if (! entry.contains (":")
+                || entry.upToFirstOccurrenceOf (":", false, false).getIntValue() != index)
+                continue;
+
+            const auto parts = juce::StringArray::fromTokens (
+                entry.fromFirstOccurrenceOf (":", false, false), ",", {});
+
+            if (parts.size() == 4)
+                return { parts[0].getIntValue(), parts[1].getIntValue(),
+                         parts[2].getIntValue(), parts[3].getIntValue() };
+        }
+
+        return {};
+    }
+
+    /** Pop-out affordance: an 8x8 screen outline with an arrow leaving its
+        top-right corner. Vector strokes — no font glyph survives at 12px.
+    */
+    void drawPopOutGlyph (juce::Graphics& g, juce::Rectangle<int> area)
+    {
+        if (area.isEmpty())
+            return;
+
+        const auto cell = area.toFloat();
+
+        g.setColour (Theme::palette().boneDim.withAlpha (0.6f));
+        g.drawRect (juce::Rectangle<float> (cell.getX(), cell.getBottom() - 8.0f, 8.0f, 8.0f), 1.0f);
+
+        const auto tipX = cell.getRight() - 1.0f;
+        const auto tipY = cell.getY() + 1.0f;
+
+        g.drawLine (cell.getX() + 6.0f, cell.getBottom() - 6.0f, tipX, tipY, 1.2f);
+        g.drawLine (tipX - 3.5f, tipY, tipX, tipY, 1.2f);
+        g.drawLine (tipX, tipY, tipX, tipY + 3.5f, 1.2f);
+    }
 }
 
 SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (SpectroscopeAudioProcessor& p)
@@ -51,6 +94,22 @@ SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (Spectroscope
 
     applyPanes (processor.getPanesMask());
 
+    // Restore panes that were floating when the state was saved. Floating
+    // pane n re-serialises the layout from live windows only, which would
+    // drop the entries of windows not yet restored — so the saved string is
+    // put back before each one.
+    const auto savedFloating = processor.getFloatingMask();
+    const auto savedLayout = processor.getWindowLayout();
+
+    for (int i = 0; i < numPanes; ++i)
+    {
+        if ((savedFloating & (1 << i)) != 0)
+        {
+            processor.setWindowLayout (savedLayout);
+            floatPane (i);
+        }
+    }
+
     // Cmd+R clears the displays. Hosts usually eat keystrokes before a plugin
     // editor sees them, which is what the CLR switch is for.
     setWantsKeyboardFocus (true);
@@ -76,6 +135,12 @@ void SpectroscopeAudioProcessorEditor::applyPanes (int mask)
     processor.setPanesMask (mask);
     mask = processor.getPanesMask();
 
+    // A floating pane being switched off comes home first, so it goes dark
+    // in the console rather than lingering on the desktop.
+    for (int i = 0; i < numPanes; ++i)
+        if ((mask & (1 << i)) == 0 && instrumentWindows[i] != nullptr)
+            dockPane (i);
+
     for (int i = 0; i < numPanes; ++i)
         paneView (i).setVisible ((mask & (1 << i)) != 0);
 
@@ -86,6 +151,118 @@ void SpectroscopeAudioProcessorEditor::applyPanes (int mask)
     stereoFieldView.setActive ((mask & (1 << 3)) != 0);
     loudnessView.setActive ((mask & (1 << 4)) != 0);
     oscilloscopeView.setActive ((mask & (1 << 5)) != 0);
+
+    resized();
+    repaint();
+}
+
+juce::String SpectroscopeAudioProcessorEditor::paneCaption (int index) const
+{
+    static const char* const captions[numPanes] = { "WAVEFORM", "SPECTRAL DENSITY", "SPECTRUM",
+                                                    "STEREO FIELD", "LEVEL CHART", "OSCILLOSCOPE" };
+    return captions[index];
+}
+
+juce::String SpectroscopeAudioProcessorEditor::paneAnnotation (int index) const
+{
+    if (index == 1)
+    {
+        const auto nyquist = processor.getCurrentSampleRate() * 0.5;
+
+        return "LOG 30 HZ-" + (nyquist > 0.0 ? juce::String (nyquist / 1000.0, 1) + " KHZ"
+                                             : juce::String ("-- KHZ"));
+    }
+
+    static const char* const annotations[numPanes] = { "CHANNEL SUM / PEAK + RMS", "",
+                                                       "MID + SIDE + PEAK HOLD",
+                                                       "LISSAJOUS + VU + CORR",
+                                                       "MOMENTARY / 60 S",
+                                                       "TRIGGERED SWEEP" };
+    return annotations[index];
+}
+
+void SpectroscopeAudioProcessorEditor::storeWindowLayout()
+{
+    juce::StringArray entries;
+
+    for (int i = 0; i < numPanes; ++i)
+    {
+        if (auto* window = instrumentWindows[i].get())
+        {
+            const auto bounds = window->getBounds();
+
+            entries.add (juce::String (i) + ":"
+                         + juce::String (bounds.getX()) + "," + juce::String (bounds.getY()) + ","
+                         + juce::String (bounds.getWidth()) + "," + juce::String (bounds.getHeight()));
+        }
+    }
+
+    processor.setWindowLayout (entries.joinIntoString (";"));
+}
+
+void SpectroscopeAudioProcessorEditor::floatPane (int index)
+{
+    if (instrumentWindows[index] != nullptr
+        || (processor.getPanesMask() & (1 << index)) == 0)
+        return;
+
+    // A component-attached OpenGLContext must not be carried across top-level
+    // windows, so the spectrogram drops to its CPU raster around the reparent.
+    const auto gpuPause = index == 1 && juce::JUCEApplicationBase::isStandaloneApp();
+
+    if (gpuPause)
+        spectrogramView.setGpuEnabled (false);
+
+    auto window = std::make_unique<InstrumentWindow> (paneCaption (index), paneAnnotation (index),
+                                                      paneView (index));
+
+    const auto saved = windowBoundsFromLayout (processor.getWindowLayout(), index);
+
+    if (! saved.isEmpty())
+        window->setBounds (saved);
+    else
+        window->setTopLeftPosition (window->getPosition().translated (30 * index, 30 * index));
+
+    // Wired after positioning, so placement doesn't write a layout string
+    // that omits every window not yet created.
+    window->onDock = [this, index] { dockPane (index); };
+    window->onBoundsChanged = [this] (juce::Rectangle<int>) { storeWindowLayout(); };
+
+    instrumentWindows[index] = std::move (window);
+
+    processor.setFloatingMask (processor.getFloatingMask() | (1 << index));
+    storeWindowLayout();
+
+    if (gpuPause)
+        spectrogramView.setGpuEnabled (true);
+
+    resized();
+    repaint();
+}
+
+void SpectroscopeAudioProcessorEditor::dockPane (int index)
+{
+    if (instrumentWindows[index] == nullptr)
+        return;
+
+    const auto gpuPause = index == 1 && juce::JUCEApplicationBase::isStandaloneApp();
+
+    if (gpuPause)
+        spectrogramView.setGpuEnabled (false);
+
+    // The window's destructor hands the view back without deleting it.
+    instrumentWindows[index].reset();
+
+    // Visibility comes from applyPanes; the glass goes back in front of the
+    // returning view.
+    addChildComponent (paneView (index));
+    crtOverlay.toFront (false);
+
+    if (gpuPause)
+        spectrogramView.setGpuEnabled (true);
+
+    processor.setFloatingMask (processor.getFloatingMask() & ~(1 << index));
+    storeWindowLayout();
 
     resized();
     repaint();
@@ -141,6 +318,11 @@ void SpectroscopeAudioProcessorEditor::cycleTheme()
 
     spectrogramView.themeChanged();
     crtOverlay.themeChanged();
+
+    for (auto& window : instrumentWindows)
+        if (window != nullptr)
+            window->liveryChanged();
+
     repaint();
 }
 
@@ -168,6 +350,12 @@ void SpectroscopeAudioProcessorEditor::mouseDown (const juce::MouseEvent& event)
 
     for (int i = 0; i < numPanes; ++i)
     {
+        if (popOutAreas[i].contains (position))
+        {
+            floatPane (i);
+            return;
+        }
+
         if (switchAreas[i].contains (position))
         {
             // Switching off the last lit pane is ignored rather than having
@@ -190,6 +378,9 @@ void SpectroscopeAudioProcessorEditor::mouseMove (const juce::MouseEvent& event)
                   || fullScreenSwitchArea.contains (position);
 
     for (const auto& area : switchAreas)
+        clickable = clickable || area.contains (position);
+
+    for (const auto& area : popOutAreas)
         clickable = clickable || area.contains (position);
 
     setMouseCursor (clickable ? juce::MouseCursor::PointingHandCursor
@@ -259,18 +450,27 @@ void SpectroscopeAudioProcessorEditor::resized()
 
     area.removeFromTop (paneGap);
 
-    // Enabled panes stack vertically, each a caption row over its screen,
-    // heights split by weight. All panes share left and right edges so the
-    // time-axis instruments line up pixel for pixel. Disabled panes keep
-    // stale bounds — they are invisible, and paint() skips their surrounds.
+    // Docked enabled panes stack vertically, each a caption row over its
+    // screen, heights split by weight. All panes share left and right edges
+    // so the time-axis instruments line up pixel for pixel. Disabled and
+    // floating panes keep stale bounds — the first are invisible, the second
+    // live in their own windows, and paint() skips both.
     const auto mask = processor.getPanesMask();
+
+    auto docked = 0;
+
+    for (int i = 0; i < numPanes; ++i)
+        if ((mask & (1 << i)) != 0 && instrumentWindows[i] == nullptr)
+            docked |= 1 << i;
+
+    popOutAreas.fill ({});
 
     auto enabledCount = 0;
     auto totalWeight = 0.0f;
 
     for (int i = 0; i < numPanes; ++i)
     {
-        if ((mask & (1 << i)) != 0)
+        if ((docked & (1 << i)) != 0)
         {
             ++enabledCount;
             totalWeight += paneWeights[i];
@@ -285,7 +485,7 @@ void SpectroscopeAudioProcessorEditor::resized()
 
     for (int i = 0; i < numPanes; ++i)
     {
-        if ((mask & (1 << i)) == 0)
+        if ((docked & (1 << i)) == 0)
             continue;
 
         if (placed > 0)
@@ -300,6 +500,9 @@ void SpectroscopeAudioProcessorEditor::resized()
         auto pane = area.removeFromTop (labelHeight + juce::jmax (0, viewHeight));
         paneLabelAreas[i] = pane.removeFromTop (labelHeight);
         paneView (i).setBounds (pane.reduced (screenInset, 0));
+
+        popOutAreas[i] = paneLabelAreas[i].withSizeKeepingCentre (12, 12)
+                             .withRightX (paneLabelAreas[i].getRight() - screenInset);
     }
 }
 
@@ -493,25 +696,20 @@ void SpectroscopeAudioProcessorEditor::paint (juce::Graphics& g)
 
     paintSwitchRail (g);
 
-    const auto nyquist = processor.getCurrentSampleRate() * 0.5;
-    const auto kHz = nyquist > 0.0 ? juce::String (nyquist / 1000.0, 1) + " KHZ" : juce::String ("-- KHZ");
-
-    const juce::String captions[numPanes] = { "WAVEFORM", "SPECTRAL DENSITY", "SPECTRUM",
-                                              "STEREO FIELD", "LEVEL CHART", "OSCILLOSCOPE" };
-    const juce::String annotations[numPanes] = { "CHANNEL SUM / PEAK + RMS",
-                                                 "LOG 30 HZ-" + kHz,
-                                                 "MID + SIDE + PEAK HOLD",
-                                                 "LISSAJOUS + VU + CORR",
-                                                 "MOMENTARY / 60 S",
-                                                 "TRIGGERED SWEEP" };
-
-    // Hidden panes keep stale bounds, so only the visible ones get surrounds.
+    // Hidden and floating panes keep stale bounds, so only the docked
+    // visible ones get surrounds. The caption row cedes its right end to the
+    // pop-out glyph.
     const auto mask = processor.getPanesMask();
 
     for (int i = 0; i < numPanes; ++i)
-        if ((mask & (1 << i)) != 0)
-            paintScreenSurround (g, paneView (i).getBounds(), paneLabelAreas[i],
-                                 captions[i], annotations[i]);
+    {
+        if ((mask & (1 << i)) == 0 || instrumentWindows[i] != nullptr)
+            continue;
+
+        paintScreenSurround (g, paneView (i).getBounds(), paneLabelAreas[i].withTrimmedRight (18),
+                             paneCaption (i), paneAnnotation (i));
+        drawPopOutGlyph (g, popOutAreas[i]);
+    }
 
     // Footer readouts.
     auto footer = footerArea;
