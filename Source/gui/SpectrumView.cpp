@@ -222,8 +222,12 @@ void SpectrumView::paint (juce::Graphics& g)
     };
 
     // One x-step per pixel, same span logic as the spectrogram's rows.
-    std::vector<float> avgDb (static_cast<size_t> (width));
-    std::vector<float> peakDb (static_cast<size_t> (width));
+    if (static_cast<int> (avgDbScratch.size()) != width)
+    {
+        avgDbScratch.resize (static_cast<size_t> (width));
+        peakDbScratch.resize (static_cast<size_t> (width));
+        sideDbScratch.resize (static_cast<size_t> (width));
+    }
 
     for (int x = 0; x < width; ++x)
     {
@@ -233,8 +237,8 @@ void SpectrumView::paint (juce::Graphics& g)
         const auto binLow  = static_cast<float> (fLow * binsPerHz);
         const auto binHigh = static_cast<float> (fHigh * binsPerHz);
 
-        avgDb[static_cast<size_t> (x)]  = levelAt (averaged, binLow, binHigh);
-        peakDb[static_cast<size_t> (x)] = levelAt (peakHold, binLow, binHigh);
+        avgDbScratch[static_cast<size_t> (x)]  = levelAt (averaged, binLow, binHigh);
+        peakDbScratch[static_cast<size_t> (x)] = levelAt (peakHold, binLow, binHigh);
     }
 
     // A short moving average across frequency calms the bin-level jitter that
@@ -242,7 +246,7 @@ void SpectrumView::paint (juce::Graphics& g)
     // peak-hold ghost stays raw — it is the precision instrument of the two.
     {
         constexpr int radius = 2;
-        std::vector<float> raw (avgDb);
+        smoothScratch.assign (avgDbScratch.begin(), avgDbScratch.end());
 
         for (int x = 0; x < width; ++x)
         {
@@ -251,11 +255,11 @@ void SpectrumView::paint (juce::Graphics& g)
 
             for (int j = juce::jmax (0, x - radius); j <= juce::jmin (width - 1, x + radius); ++j)
             {
-                sum += raw[static_cast<size_t> (j)];
+                sum += smoothScratch[static_cast<size_t> (j)];
                 ++n;
             }
 
-            avgDb[static_cast<size_t> (x)] = sum / static_cast<float> (n);
+            avgDbScratch[static_cast<size_t> (x)] = sum / static_cast<float> (n);
         }
     }
 
@@ -264,8 +268,8 @@ void SpectrumView::paint (juce::Graphics& g)
     for (int x = 0; x < width; ++x)
     {
         const auto fx = static_cast<float> (x);
-        const auto yAvg = toY (avgDb[static_cast<size_t> (x)]);
-        const auto yPeak = toY (peakDb[static_cast<size_t> (x)]);
+        const auto yAvg = toY (avgDbScratch[static_cast<size_t> (x)]);
+        const auto yPeak = toY (peakDbScratch[static_cast<size_t> (x)]);
 
         if (x == 0)
         {
@@ -308,21 +312,19 @@ void SpectrumView::paint (juce::Graphics& g)
     // thin — the secondary reading. Where it hugs the mid trace the material
     // is wide; where it falls away it is mono.
     {
-        std::vector<float> sideDb (static_cast<size_t> (width));
-
         for (int x = 0; x < width; ++x)
         {
             const auto fLow  = minFrequencyHz * std::exp (static_cast<double> (x) / width * logSpan);
             const auto fHigh = minFrequencyHz * std::exp (static_cast<double> (x + 1) / width * logSpan);
 
-            sideDb[static_cast<size_t> (x)] = levelAt (averagedSide,
-                                                       static_cast<float> (fLow * binsPerHz),
-                                                       static_cast<float> (fHigh * binsPerHz));
+            sideDbScratch[static_cast<size_t> (x)] = levelAt (averagedSide,
+                                                              static_cast<float> (fLow * binsPerHz),
+                                                              static_cast<float> (fHigh * binsPerHz));
         }
 
         {
             constexpr int radius = 2;
-            std::vector<float> raw (sideDb);
+            smoothScratch.assign (sideDbScratch.begin(), sideDbScratch.end());
 
             for (int x = 0; x < width; ++x)
             {
@@ -331,11 +333,11 @@ void SpectrumView::paint (juce::Graphics& g)
 
                 for (int j = juce::jmax (0, x - radius); j <= juce::jmin (width - 1, x + radius); ++j)
                 {
-                    sum += raw[static_cast<size_t> (j)];
+                    sum += smoothScratch[static_cast<size_t> (j)];
                     ++n;
                 }
 
-                sideDb[static_cast<size_t> (x)] = sum / static_cast<float> (n);
+                sideDbScratch[static_cast<size_t> (x)] = sum / static_cast<float> (n);
             }
         }
 
@@ -344,7 +346,7 @@ void SpectrumView::paint (juce::Graphics& g)
         for (int x = 0; x < width; ++x)
         {
             const auto fx = static_cast<float> (x);
-            const auto y = toY (sideDb[static_cast<size_t> (x)]);
+            const auto y = toY (sideDbScratch[static_cast<size_t> (x)]);
 
             if (x == 0)
                 side.startNewSubPath (fx, y);

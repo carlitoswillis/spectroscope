@@ -66,5 +66,13 @@ private:
     std::vector<float> averagedSide;  // dB per bin, exponential average
     int numBins = 0;
 
+    // Per-pixel paint scratch, one entry per x column. Members rather than
+    // paint() locals so the 60 Hz repaint reuses capacity instead of hitting
+    // the allocator; resized only when the width changes.
+    std::vector<float> avgDbScratch;
+    std::vector<float> peakDbScratch;
+    std::vector<float> sideDbScratch;
+    std::vector<float> smoothScratch;
+
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumView)
 };

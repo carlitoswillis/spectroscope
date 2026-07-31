@@ -11,15 +11,16 @@ latency, so hosts add nothing to the signal path.
 Both views are live: a scrolling min/max waveform above a scrolling spectrogram, sharing one time
 axis. A 2048-point window advanced 256 samples at a time gives ~23 Hz bins updating every 5.3 ms.
 
-The frequency axis is still **linear** and drawing is still on the **CPU** — Phase 4 moves it to
-the GPU, Phase 6 makes the axis logarithmic.
+The frequency axis is **logarithmic** and, in the standalone app, the spectrogram raster is
+rendered on the **GPU** as a ring texture — the log remap, gamma and palette all happen in the
+fragment shader.
 
 | Phase | What it adds | State |
 |---|---|---|
 | 1 | CMake + JUCE, AU/VST3/Standalone targets, pass-through processor | **done** |
 | 2 | Lock-free capture, waveform view | **done** |
 | 3 | STFT spectrogram (CPU) | **done** |
-| 4 | OpenGL ring-texture renderer | planned |
+| 4 | OpenGL ring-texture renderer | **done** (standalone; DAW builds stay on the CPU renderer) |
 | 5 | Standalone device picker + Apollo routing | planned |
 | 6 | Log frequency axis, colour maps, cursor readout | planned |
 

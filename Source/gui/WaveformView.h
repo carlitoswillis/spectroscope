@@ -43,6 +43,13 @@ private:
     int head = 0;          // index one past the newest point
     int numStored = 0;
 
+    // One entry per visible pixel column. Members rather than paint() locals
+    // so the 60 Hz repaint reuses capacity instead of hitting the allocator.
+    struct Sample { float x, maxValue, minValue, rms; };
+
+    std::vector<Sample> columnScratch;
+    std::vector<Sample> smoothedScratch;
+
     const EnvelopePoint* pointAtAge (int age) const noexcept;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformView)

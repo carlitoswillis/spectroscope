@@ -146,21 +146,22 @@ void WaveformView::paint (juce::Graphics& g)
     // every few pixels and the raw trace turns into a comb; a short moving
     // average keeps transients while letting the outline flow like a drawn
     // wave instead of bristling.
-    struct Sample { float x, maxValue, minValue, rms; };
-    std::vector<Sample> samples;
-    samples.reserve (static_cast<size_t> (width));
+    columnScratch.clear();
+
+    if (columnScratch.capacity() < static_cast<size_t> (width))
+        columnScratch.reserve (static_cast<size_t> (width));
 
     for (int x = 0; x < width; ++x)
         if (const auto* point = pointAtAge (width - 1 - x))
-            samples.push_back ({ static_cast<float> (x), point->maxValue, point->minValue, point->rms });
+            columnScratch.push_back ({ static_cast<float> (x), point->maxValue, point->minValue, point->rms });
 
-    if (samples.empty())
+    if (columnScratch.empty())
         return;
 
-    const auto count = static_cast<int> (samples.size());
+    const auto count = static_cast<int> (columnScratch.size());
     constexpr int smoothRadius = 2;
 
-    std::vector<Sample> smoothed (samples);
+    smoothedScratch.assign (columnScratch.begin(), columnScratch.end());
 
     for (int i = 0; i < count; ++i)
     {
@@ -169,15 +170,15 @@ void WaveformView::paint (juce::Graphics& g)
 
         for (int j = juce::jmax (0, i - smoothRadius); j <= juce::jmin (count - 1, i + smoothRadius); ++j)
         {
-            maxSum += samples[static_cast<size_t> (j)].maxValue;
-            minSum += samples[static_cast<size_t> (j)].minValue;
-            rmsSum += samples[static_cast<size_t> (j)].rms;
+            maxSum += columnScratch[static_cast<size_t> (j)].maxValue;
+            minSum += columnScratch[static_cast<size_t> (j)].minValue;
+            rmsSum += columnScratch[static_cast<size_t> (j)].rms;
             ++n;
         }
 
-        smoothed[static_cast<size_t> (i)].maxValue = maxSum / static_cast<float> (n);
-        smoothed[static_cast<size_t> (i)].minValue = minSum / static_cast<float> (n);
-        smoothed[static_cast<size_t> (i)].rms      = rmsSum / static_cast<float> (n);
+        smoothedScratch[static_cast<size_t> (i)].maxValue = maxSum / static_cast<float> (n);
+        smoothedScratch[static_cast<size_t> (i)].minValue = minSum / static_cast<float> (n);
+        smoothedScratch[static_cast<size_t> (i)].rms      = rmsSum / static_cast<float> (n);
     }
 
     // The envelope as one closed shape: along the maxima left to right, back
@@ -187,7 +188,7 @@ void WaveformView::paint (juce::Graphics& g)
 
     for (int i = 0; i < count; ++i)
     {
-        const auto& s = smoothed[static_cast<size_t> (i)];
+        const auto& s = smoothedScratch[static_cast<size_t> (i)];
 
         if (i == 0)
         {
@@ -203,7 +204,7 @@ void WaveformView::paint (juce::Graphics& g)
 
     for (int i = count - 1; i >= 0; --i)
     {
-        const auto& s = smoothed[static_cast<size_t> (i)];
+        const auto& s = smoothedScratch[static_cast<size_t> (i)];
 
         envelope.lineTo (s.x, toY (s.minValue));
         rmsBand.lineTo (s.x, toY (-s.rms));

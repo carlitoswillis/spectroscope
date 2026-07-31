@@ -33,6 +33,12 @@ SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (Spectroscope
     // before the saved livery was applied above.
     spectrogramView.themeChanged();
 
+    // GPU raster in the standalone only: DAW hosts keep the CPU renderer
+    // (GL-in-plugin has a history of host DPI and z-order trouble), and the
+    // headless preview needs the CPU path to have something to screenshot.
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+        spectrogramView.setGpuEnabled (true);
+
     addAndMakeVisible (waveformView);
     addAndMakeVisible (spectrogramView);
     addAndMakeVisible (spectrumView);
