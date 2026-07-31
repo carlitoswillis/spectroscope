@@ -62,7 +62,7 @@ void SpectroscopeAudioProcessor::getStateInformation (juce::MemoryBlock& destDat
     // No audio parameters — the state is purely how the display is dressed.
     juce::XmlElement state ("SpectroscopeState");
     state.setAttribute ("theme", getThemeIndex());
-    state.setAttribute ("spectrum", getSpectrumMode());
+    state.setAttribute ("view", getViewMode());
 
     copyXmlToBinary (state, destData);
 }
@@ -74,7 +74,12 @@ void SpectroscopeAudioProcessor::setStateInformation (const void* data, int size
         if (state->hasTagName ("SpectroscopeState"))
         {
             setThemeIndex (state->getIntAttribute ("theme", 0));
-            setSpectrumMode (state->getBoolAttribute ("spectrum", false));
+
+            // Sessions saved before the four-mode cycle stored a bool.
+            if (state->hasAttribute ("view"))
+                setViewMode (state->getIntAttribute ("view", 0));
+            else
+                setViewMode (state->getBoolAttribute ("spectrum", false) ? 1 : 0);
         }
     }
 }

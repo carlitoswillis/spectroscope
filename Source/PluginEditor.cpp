@@ -16,18 +16,28 @@ SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (Spectroscope
       processor (p),
       waveformView (p.getAnalysisEngine()),
       spectrogramView (p.getAnalysisEngine()),
-      spectrumView (p.getAnalysisEngine())
+      spectrumView (p.getAnalysisEngine()),
+      stereoFieldView (p.getAnalysisEngine()),
+      loudnessView (p.getAnalysisEngine()),
+      oscilloscopeView (p.getAnalysisEngine())
 {
     Theme::setCurrent (processor.getThemeIndex());
+
+    // The spectrogram cached its colour table during member construction,
+    // before the saved livery was applied above.
+    spectrogramView.themeChanged();
 
     addAndMakeVisible (waveformView);
     addAndMakeVisible (spectrogramView);
     addAndMakeVisible (spectrumView);
+    addAndMakeVisible (stereoFieldView);
+    addAndMakeVisible (loudnessView);
+    addAndMakeVisible (oscilloscopeView);
 
     // Last, so the glass sits in front of everything behind it.
     addAndMakeVisible (crtOverlay);
 
-    applySpectrumMode (processor.getSpectrumMode());
+    applyViewMode (processor.getViewMode());
 
     setResizable (true, true);
     setResizeLimits (520, 360, 4096, 2400);
@@ -36,16 +46,23 @@ SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (Spectroscope
     startTimerHz (12);
 }
 
-void SpectroscopeAudioProcessorEditor::applySpectrumMode (bool spectrumOn)
+void SpectroscopeAudioProcessorEditor::applyViewMode (int mode)
 {
-    processor.setSpectrumMode (spectrumOn);
+    processor.setViewMode (mode);
+    mode = processor.getViewMode();
 
-    spectrogramView.setVisible (! spectrumOn);
-    spectrumView.setVisible (spectrumOn);
+    // Only the visible view drains its queues.
+    juce::Component* const views[] = { &spectrogramView, &spectrumView, &stereoFieldView,
+                                       &loudnessView, &oscilloscopeView };
 
-    // Only the visible view drains the column queue.
-    spectrogramView.setActive (! spectrumOn);
-    spectrumView.setActive (spectrumOn);
+    for (int i = 0; i < 5; ++i)
+        views[i]->setVisible (i == mode);
+
+    spectrogramView.setActive (mode == 0);
+    spectrumView.setActive (mode == 1);
+    stereoFieldView.setActive (mode == 2);
+    loudnessView.setActive (mode == 3);
+    oscilloscopeView.setActive (mode == 4);
 
     repaint();
 }
@@ -69,7 +86,7 @@ void SpectroscopeAudioProcessorEditor::mouseDown (const juce::MouseEvent& event)
     if (themeSwitchArea.contains (position))
         cycleTheme();
     else if (spectralLabelArea.contains (position))
-        applySpectrumMode (! processor.getSpectrumMode());
+        applyViewMode ((processor.getViewMode() + 1) % 5);
 }
 
 void SpectroscopeAudioProcessorEditor::mouseMove (const juce::MouseEvent& event)
@@ -139,6 +156,9 @@ void SpectroscopeAudioProcessorEditor::resized()
     const auto lowerScreen = area.reduced (screenInset, 0);
     spectrogramView.setBounds (lowerScreen);
     spectrumView.setBounds (lowerScreen);
+    stereoFieldView.setBounds (lowerScreen);
+    loudnessView.setBounds (lowerScreen);
+    oscilloscopeView.setBounds (lowerScreen);
 }
 
 void SpectroscopeAudioProcessorEditor::paintScreenSurround (juce::Graphics& g,
@@ -166,17 +186,59 @@ void SpectroscopeAudioProcessorEditor::paintHeader (juce::Graphics& g)
 {
     auto header = headerArea;
 
-    // Title block.
+    // Title block. Position and metrics stay identical whatever the livery's
+    // title style, so switching never reflows the header.
     auto titleArea = header.removeFromLeft (juce::jmin (330, header.getWidth() / 2));
+    const auto titleRow = titleArea.removeFromTop (21);
+    const auto titleText = Theme::spaced ("SPECTROSCOPE");
+    const juce::Font titleFont (Theme::mono (17.0f, true));
 
-    g.setColour (Theme::palette().amber);
-    g.setFont (Theme::mono (17.0f, true));
-    g.drawText (Theme::spaced ("SPECTROSCOPE"),
-                titleArea.removeFromTop (21), juce::Justification::topLeft);
+    switch (Theme::palette().titleStyle)
+    {
+        case Theme::TitleStyle::filled:
+            g.setColour (Theme::palette().amber);
+            g.setFont (titleFont);
+            g.drawText (titleText, titleRow, juce::Justification::topLeft);
+            break;
+
+        case Theme::TitleStyle::outline:
+        {
+            // Hollow boot-screen lettering: stroked glyph outlines, no fill.
+            juce::GlyphArrangement glyphs;
+            glyphs.addLineOfText (titleFont, titleText,
+                                  static_cast<float> (titleRow.getX()),
+                                  static_cast<float> (titleRow.getY()) + titleFont.getAscent());
+
+            juce::Path outline;
+            glyphs.createPath (outline);
+
+            g.setColour (Theme::palette().amber);
+            g.strokePath (outline, juce::PathStrokeType (1.1f));
+            break;
+        }
+
+        case Theme::TitleStyle::plate:
+        {
+            // Signage placard: a filled rounded plate with the text knocked
+            // out. Vertical padding is tighter so it clears the subtitle.
+            const auto textWidth = juce::GlyphArrangement::getStringWidth (titleFont, titleText);
+            const auto plate = juce::Rectangle<float> (textWidth, titleFont.getHeight())
+                                   .withPosition (titleRow.toFloat().getPosition())
+                                   .expanded (6.0f, 1.5f);
+
+            g.setColour (Theme::palette().amber);
+            g.fillRoundedRectangle (plate, 3.0f);
+
+            g.setColour (Theme::palette().shellMid);
+            g.setFont (titleFont);
+            g.drawText (titleText, titleRow, juce::Justification::topLeft);
+            break;
+        }
+    }
 
     g.setColour (Theme::palette().boneDim.withAlpha (0.7f));
     g.setFont (Theme::mono (8.5f));
-    g.drawText (Theme::spaced ("SPECTRAL ANALYSIS UNIT / MK I"),
+    g.drawText (Theme::spaced (juce::String (Theme::palette().subtitle)),
                 titleArea, juce::Justification::topLeft);
 
     // Readout, right-aligned.
@@ -242,16 +304,23 @@ void SpectroscopeAudioProcessorEditor::paint (juce::Graphics& g)
                           static_cast<float> (headerArea.getRight()));
 
     const auto nyquist = processor.getCurrentSampleRate() * 0.5;
-    const auto spectrumOn = processor.getSpectrumMode();
     const auto kHz = nyquist > 0.0 ? juce::String (nyquist / 1000.0, 1) + " KHZ" : juce::String ("-- KHZ");
 
     paintScreenSurround (g, waveformView.getBounds(), waveformLabelArea,
                          "WAVEFORM", "CHANNEL SUM / PEAK + RMS");
 
+    const juce::String captions[] = { "SPECTRAL DENSITY", "SPECTRUM", "STEREO FIELD",
+                                      "LEVEL CHART", "OSCILLOSCOPE" };
+    const juce::String annotations[] = { "LOG 30 HZ-" + kHz + " / CLICK FOR SPECTRUM",
+                                         "MID + SIDE + PEAK HOLD / CLICK FOR STEREO FIELD",
+                                         "LISSAJOUS + VU + CORR / CLICK FOR LEVEL CHART",
+                                         "MOMENTARY 60 S / CLICK FOR OSCILLOSCOPE",
+                                         "TRIGGERED SWEEP / CLICK FOR DENSITY" };
+
+    const auto mode = processor.getViewMode();
+
     paintScreenSurround (g, spectrogramView.getBounds(), spectralLabelArea,
-                         spectrumOn ? "SPECTRUM" : "SPECTRAL DENSITY",
-                         spectrumOn ? "AVG + PEAK HOLD / CLICK FOR DENSITY"
-                                    : "LOG 30 HZ-" + kHz + " / CLICK FOR SPECTRUM");
+                         captions[mode], annotations[mode]);
 
     // Footer readouts.
     auto footer = footerArea;

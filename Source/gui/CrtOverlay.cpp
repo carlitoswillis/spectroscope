@@ -4,8 +4,6 @@
 namespace
 {
     constexpr int   scanlinePitch   = 3;      // pixels between dark lines
-    constexpr float scanlineAlpha   = 0.16f;
-    constexpr float vignetteAlpha   = 0.55f;
     constexpr float cornerTintAlpha = 0.10f;
 }
 
@@ -39,6 +37,10 @@ void CrtOverlay::rebuild()
 
     overlay = juce::Image (juce::Image::ARGB, w, h, true);
     juce::Graphics g (overlay);
+
+    // Strengths come from the palette — each livery's tube wears differently.
+    const auto scanlineAlpha = Theme::palette().scanlineAlpha;
+    const auto vignetteAlpha = Theme::palette().vignetteAlpha;
 
     // Scanlines. Dark rather than light, so they read as gaps between glowing
     // lines instead of stripes painted over the picture.

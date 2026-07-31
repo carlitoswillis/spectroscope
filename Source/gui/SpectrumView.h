@@ -14,6 +14,10 @@
     ghost that decays slowly enough to read resonances off. Both come from the
     same STFT columns the spectrogram scrolls, so switching views never changes
     what is being measured.
+
+    A third trace averages the SIDE channel's columns, giving the width-vs-
+    frequency reading: where it hugs the mid trace the material is wide, where
+    it falls away it is mono.
 */
 class SpectrumView final : public juce::Component,
                            private juce::Timer
@@ -52,9 +56,11 @@ private:
 
     AnalysisEngine& engine;
 
-    std::vector<float> scratch;    // maxColumnsPerFrame * numBins
-    std::vector<float> averaged;   // dB per bin, exponential average
-    std::vector<float> peakHold;   // dB per bin, slow decay
+    std::vector<float> scratch;       // maxColumnsPerFrame * numBins
+    std::vector<float> averaged;      // dB per bin, exponential average
+    std::vector<float> peakHold;      // dB per bin, slow decay
+    std::vector<float> sideScratch;   // maxColumnsPerFrame * numBins
+    std::vector<float> averagedSide;  // dB per bin, exponential average
     int numBins = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectrumView)

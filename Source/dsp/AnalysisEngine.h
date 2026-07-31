@@ -17,6 +17,21 @@ struct EnvelopePoint
     float rms      = 0.0f;
 };
 
+/** One frame of the stereo field. Pushed for every sample of every processed
+    hop, so a vectorscope can draw the actual trace rather than a summary.
+*/
+struct StereoSample
+{
+    float left  = 0.0f;
+    float right = 0.0f;
+};
+
+/** One item per hop: RMS of the mid (mono-sum) hop in dBFS, floored at -100. */
+struct LoudnessPoint
+{
+    float momentaryDb = -100.0f;
+};
+
 /**
     Owns the analysis thread. Pulls hop-sized chunks out of the audio thread's
     ring buffer and, for each one, publishes both a waveform envelope point and
@@ -51,6 +66,32 @@ public:
     LockFreeQueue<EnvelopePoint>& getEnvelopeQueue() noexcept { return envelopeQueue; }
     ColumnRing& getSpectrumColumns() noexcept                 { return spectrumColumns; }
 
+    /** Every sample of every processed hop. Single consumer: StereoFieldView. */
+    LockFreeQueue<StereoSample>& getStereoSamples() noexcept  { return stereoSamples; }
+
+    /** One item per hop. Single consumer: LoudnessHistoryView. */
+    LockFreeQueue<LoudnessPoint>& getLoudnessQueue() noexcept { return loudnessQueue; }
+
+    /** STFT dB columns of the side channel (L-R)/2, same bin count and cadence
+        as getSpectrumColumns(). Single consumer: SpectrumView.
+    */
+    ColumnRing& getSideSpectrumColumns() noexcept             { return sideSpectrumColumns; }
+
+    /** Pearson r of L/R per hop, smoothed over roughly 200 ms. Reads 1.0 for
+        mono input and for silence.
+    */
+    float getCorrelation() const noexcept { return smoothedCorrelation.load (std::memory_order_relaxed); }
+
+    /** Linear RMS of the last hop, per channel. Mono input reports the same
+        value on both.
+    */
+    float getLeftRms() const noexcept  { return leftRms.load (std::memory_order_relaxed); }
+    float getRightRms() const noexcept { return rightRms.load (std::memory_order_relaxed); }
+
+    /** Per-channel decaying peak, same decay as getRecentPeak(). */
+    float getLeftPeak() const noexcept  { return leftPeak.load (std::memory_order_relaxed); }
+    float getRightPeak() const noexcept { return rightPeak.load (std::memory_order_relaxed); }
+
     int getNumBins() const noexcept       { return stft.getNumBins(); }
     int getHopSize() const noexcept       { return hopSize; }
     double getSampleRate() const noexcept { return currentSampleRate; }
@@ -79,15 +120,26 @@ private:
 
     SampleRingBuffer ringBuffer;
     LockFreeQueue<EnvelopePoint> envelopeQueue;
+    LockFreeQueue<StereoSample> stereoSamples;
+    LockFreeQueue<LoudnessPoint> loudnessQueue;
     ColumnRing spectrumColumns;
+    ColumnRing sideSpectrumColumns;
     StftAnalyzer stft;
+    StftAnalyzer sideStft;
 
     juce::AudioBuffer<float> hopBuffer;      // analysis thread only
     juce::AudioBuffer<float> monoBuffer;     // analysis thread only
+    juce::AudioBuffer<float> sideBuffer;     // analysis thread only
     std::vector<float> columnScratch;        // analysis thread only
+    std::vector<float> sideColumnScratch;    // analysis thread only
 
     std::atomic<int> consumerCount { 0 };
     std::atomic<float> recentPeak { 0.0f };
+    std::atomic<float> smoothedCorrelation { 1.0f };
+    std::atomic<float> leftRms { 0.0f };
+    std::atomic<float> rightRms { 0.0f };
+    std::atomic<float> leftPeak { 0.0f };
+    std::atomic<float> rightPeak { 0.0f };
     bool wasActive = false;
 
     double currentSampleRate = 0.0;

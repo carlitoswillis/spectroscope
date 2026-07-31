@@ -22,10 +22,12 @@ void SpectrumView::setActive (bool shouldBeActive)
     if (shouldBeActive)
     {
         engine.getSpectrumColumns().discardPending();
+        engine.getSideSpectrumColumns().discardPending();
 
         // Start from silence rather than whatever the last look held.
         std::fill (averaged.begin(), averaged.end(), StftAnalyzer::floorDb);
         std::fill (peakHold.begin(), peakHold.end(), StftAnalyzer::floorDb);
+        std::fill (averagedSide.begin(), averagedSide.end(), StftAnalyzer::floorDb);
 
         startTimerHz (60);
     }
@@ -48,6 +50,8 @@ void SpectrumView::timerCallback()
         scratch.assign (static_cast<size_t> (numBins) * maxColumnsPerFrame, StftAnalyzer::floorDb);
         averaged.assign (static_cast<size_t> (numBins), StftAnalyzer::floorDb);
         peakHold.assign (static_cast<size_t> (numBins), StftAnalyzer::floorDb);
+        sideScratch.assign (static_cast<size_t> (numBins) * maxColumnsPerFrame, StftAnalyzer::floorDb);
+        averagedSide.assign (static_cast<size_t> (numBins), StftAnalyzer::floorDb);
     }
 
     auto totalRead = 0;
@@ -69,6 +73,33 @@ void SpectrumView::timerCallback()
 
                 averaged[b] += (column[bin] - averaged[b]) * averageAlpha;
                 peakHold[b] = juce::jmax (column[bin], peakHold[b] - peakDecayDbPerColumn);
+            }
+        }
+
+        totalRead += numRead;
+
+        if (numRead < maxColumnsPerFrame)
+            break;
+    }
+
+    // The side columns arrive at the same cadence but through their own queue,
+    // so they get their own drain loop rather than lockstep pops.
+    for (;;)
+    {
+        const auto numRead = engine.getSideSpectrumColumns().pop (sideScratch.data(), maxColumnsPerFrame);
+
+        if (numRead <= 0)
+            break;
+
+        for (int i = 0; i < numRead; ++i)
+        {
+            const auto* column = sideScratch.data() + static_cast<std::ptrdiff_t> (i) * numBins;
+
+            for (int bin = 0; bin < numBins; ++bin)
+            {
+                const auto b = static_cast<size_t> (bin);
+
+                averagedSide[b] += (column[bin] - averagedSide[b]) * averageAlpha;
             }
         }
 
@@ -261,4 +292,74 @@ void SpectrumView::paint (juce::Graphics& g)
 
     g.setColour (Theme::palette().amberBright.withAlpha (0.9f));
     g.strokePath (average, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    // SIDE trace: same sampling and smoothing as the average, drawn once and
+    // thin — the secondary reading. Where it hugs the mid trace the material
+    // is wide; where it falls away it is mono.
+    {
+        std::vector<float> sideDb (static_cast<size_t> (width));
+
+        for (int x = 0; x < width; ++x)
+        {
+            const auto fLow  = minFrequencyHz * std::exp (static_cast<double> (x) / width * logSpan);
+            const auto fHigh = minFrequencyHz * std::exp (static_cast<double> (x + 1) / width * logSpan);
+
+            sideDb[static_cast<size_t> (x)] = levelAt (averagedSide,
+                                                       static_cast<float> (fLow * binsPerHz),
+                                                       static_cast<float> (fHigh * binsPerHz));
+        }
+
+        {
+            constexpr int radius = 2;
+            std::vector<float> raw (sideDb);
+
+            for (int x = 0; x < width; ++x)
+            {
+                auto sum = 0.0f;
+                auto n = 0;
+
+                for (int j = juce::jmax (0, x - radius); j <= juce::jmin (width - 1, x + radius); ++j)
+                {
+                    sum += raw[static_cast<size_t> (j)];
+                    ++n;
+                }
+
+                sideDb[static_cast<size_t> (x)] = sum / static_cast<float> (n);
+            }
+        }
+
+        juce::Path side;
+
+        for (int x = 0; x < width; ++x)
+        {
+            const auto fx = static_cast<float> (x);
+            const auto y = toY (sideDb[static_cast<size_t> (x)]);
+
+            if (x == 0)
+                side.startNewSubPath (fx, y);
+            else
+                side.lineTo (fx, y);
+        }
+
+        g.setColour (Theme::palette().secondary.withAlpha (0.75f));
+        g.strokePath (side, juce::PathStrokeType (1.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    // Legend, tucked into the top-left corner of the screen.
+    {
+        g.setFont (Theme::mono (8.0f));
+
+        const auto swatchY1 = 10.0f;
+        const auto swatchY2 = 22.0f;
+
+        g.setColour (Theme::palette().amberBright.withAlpha (0.85f));
+        g.drawLine (8.0f, swatchY1, 20.0f, swatchY1, 1.2f);
+        g.drawText ("MID", juce::Rectangle<float> (24.0f, swatchY1 - 5.0f, 40.0f, 10.0f),
+                    juce::Justification::centredLeft);
+
+        g.setColour (Theme::palette().secondary.withAlpha (0.85f));
+        g.drawLine (8.0f, swatchY2, 20.0f, swatchY2, 1.0f);
+        g.drawText ("SIDE", juce::Rectangle<float> (24.0f, swatchY2 - 5.0f, 40.0f, 10.0f),
+                    juce::Justification::centredLeft);
+    }
 }

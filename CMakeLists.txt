@@ -47,6 +47,9 @@ target_sources(Spectroscope PRIVATE
     Source/gui/WaveformView.cpp
     Source/gui/SpectrogramView.cpp
     Source/gui/SpectrumView.cpp
+    Source/gui/StereoFieldView.cpp
+    Source/gui/LoudnessHistoryView.cpp
+    Source/gui/OscilloscopeView.cpp
     Source/gui/CrtOverlay.cpp)
 
 target_compile_definitions(Spectroscope PUBLIC
@@ -117,6 +120,9 @@ if(SPECTROSCOPE_BUILD_PREVIEW)
         Source/gui/WaveformView.cpp
         Source/gui/SpectrogramView.cpp
         Source/gui/SpectrumView.cpp
+        Source/gui/StereoFieldView.cpp
+        Source/gui/LoudnessHistoryView.cpp
+        Source/gui/OscilloscopeView.cpp
         Source/gui/CrtOverlay.cpp)
 
     target_compile_definitions(RenderPreview PRIVATE

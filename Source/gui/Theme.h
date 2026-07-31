@@ -21,6 +21,17 @@
 namespace Theme
 {
     //==========================================================================
+    /** How the header wordmark is set. Each livery gets the treatment its
+        source hardware would have used.
+    */
+    enum class TitleStyle
+    {
+        filled,     // solid phosphor text
+        outline,    // stroked glyph paths, hollow — Nostromo boot screen
+        plate       // rounded placard in the accent, text knocked out in shellMid
+    };
+
+    //==========================================================================
     struct Palette
     {
         const char* name;       // silkscreened on the theme switch
@@ -43,6 +54,14 @@ namespace Theme
         juce::Colour bone, boneDim;
 
         std::array<juce::PixelARGB, 256> spectrogramTable;
+
+        // Livery character. Appended after the table so existing aggregate
+        // initialisers extend at the tail.
+        TitleStyle titleStyle;
+        const char* subtitle;      // header flavour line, drawn letterspaced
+        juce::Colour secondary;    // secondary trace — SIDE ribbon, second readouts
+        float scanlineAlpha;       // CrtOverlay scanline darkness
+        float vignetteAlpha;       // CrtOverlay vignette strength
     };
 
     inline const std::array<Palette, 4> palettes
@@ -51,41 +70,59 @@ namespace Theme
             "AMBER", "UNIT A",
             juce::Colour (0xff14100e), juce::Colour (0xff1f1915), juce::Colour (0xff2e2620),
             juce::Colour (0xff473a2f), juce::Colour (0xff0d0a08),
+            // Trace sits at the canonical P3 phosphor value; the dim tier leans
+            // burnt-orange, the way aged amber tubes two-tone.
             juce::Colour (0xff0a0906), juce::Colour (0xff3a2a16), juce::Colour (0xff5c421f),
-            juce::Colour (0xffffa51f), juce::Colour (0xffffd591), juce::Colour (0xff8a5a12),
+            juce::Colour (0xffffb000), juce::Colour (0xffffd591), juce::Colour (0xffa06a08),
             juce::Colour (0xff35e08a), juce::Colour (0xffc4562a), juce::Colour (0xffc9a227),
             juce::Colour (0xffd8c9ae), juce::Colour (0xff8a7f6c),
             ColourMaps::buildTable (ColourMaps::amberPhosphor),
+            TitleStyle::filled, "SPECTRAL ANALYSIS UNIT / MK I",
+            juce::Colour (0xffc9a227), 0.16f, 0.55f,
         },
         {
             "NOSTROMO", "UNIT B",
             juce::Colour (0xff0d100e), juce::Colour (0xff161c18), juce::Colour (0xff222b25),
             juce::Colour (0xff37453c), juce::Colour (0xff070908),
-            juce::Colour (0xff050908), juce::Colour (0xff163021), juce::Colour (0xff234a30),
-            juce::Colour (0xff2fd97e), juce::Colour (0xffc9ffdb), juce::Colour (0xff17754a),
-            juce::Colour (0xff35e08a), juce::Colour (0xffc4562a), juce::Colour (0xffc9a227),
+            // MU-TH-UR's green is yellower than a stock terminal green, so the
+            // trace and grid pull toward it; alerts take the Semiotic Standard
+            // signal red, the panel print hazard yellow.
+            juce::Colour (0xff060a06), juce::Colour (0xff1d3413), juce::Colour (0xff2e4f1c),
+            juce::Colour (0xff7af042), juce::Colour (0xffd6ffb0), juce::Colour (0xff3d7d21),
+            juce::Colour (0xff35e08a), juce::Colour (0xffcf3a2b), juce::Colour (0xffdec231),
             juce::Colour (0xffbfcfc0), juce::Colour (0xff6f8272),
             ColourMaps::buildTable (ColourMaps::greenPhosphor),
+            TitleStyle::outline, "MU-TH-UR 6000 LINK / SPECTRAL SUBSYSTEM",
+            juce::Colour (0xff45d8d8), 0.22f, 0.60f,
         },
         {
             "TVA", "UNIT C",
-            juce::Colour (0xffc4b394), juce::Colour (0xffdccdb0), juce::Colour (0xffb0a184),
-            juce::Colour (0xfff2e8d0), juce::Colour (0xff6d5f47),
-            juce::Colour (0xff100d09), juce::Colour (0xff3a2c18), juce::Colour (0xff5c451f),
-            juce::Colour (0xffc9541f), juce::Colour (0xffe5762a), juce::Colour (0xff8f4a1a),
-            juce::Colour (0xff2f9e6e), juce::Colour (0xffb03a20), juce::Colour (0xffb98f2c),
-            juce::Colour (0xff4a3d2c), juce::Colour (0xff77664e),
+            // Aged-paper panel over a walnut shadow line; the tube goes
+            // brown-black with a sepia orange trace, and the lamp green drops
+            // its teal for the grey-green mint that carries the livery.
+            juce::Colour (0xffc9b892), juce::Colour (0xffe2d5b8), juce::Colour (0xffb0a184),
+            juce::Colour (0xfff2e8d0), juce::Colour (0xff4f2d1c),
+            juce::Colour (0xff1c120a), juce::Colour (0xff3a2c18), juce::Colour (0xff5c451f),
+            juce::Colour (0xffe8823a), juce::Colour (0xffffab63), juce::Colour (0xff8f4a1a),
+            juce::Colour (0xff9dbc82), juce::Colour (0xffb03a20), juce::Colour (0xffc79c3a),
+            juce::Colour (0xff4a3524), juce::Colour (0xff77664e),
             ColourMaps::buildTable (ColourMaps::amberPhosphor),
+            TitleStyle::plate, "SPECTRAL VARIANCE DIVISION / CASE FILE 7-C",
+            juce::Colour (0xff9dbc82), 0.10f, 0.62f,
         },
         {
             "GRTA", "UNIT D",
             juce::Colour (0xff101318), juce::Colour (0xff1b212b), juce::Colour (0xff28303d),
             juce::Colour (0xff3e4a5c), juce::Colour (0xff090b0f),
+            // LED-wall blue-white rather than terminal cyan; the nominal lamp
+            // and mustard shift to the console's green and amber blinkenlights.
             juce::Colour (0xff060a0f), juce::Colour (0xff17293e), juce::Colour (0xff254059),
-            juce::Colour (0xff4fc4e8), juce::Colour (0xffd9f4ff), juce::Colour (0xff2a7a99),
-            juce::Colour (0xff35e08a), juce::Colour (0xffe86a55), juce::Colour (0xffc9a227),
+            juce::Colour (0xff7ab6f2), juce::Colour (0xffcfe6ff), juce::Colour (0xff34639c),
+            juce::Colour (0xff4fe06a), juce::Colour (0xffe86a55), juce::Colour (0xffe0a244),
             juce::Colour (0xffc4cdd8), juce::Colour (0xff6f7b8a),
             ColourMaps::buildTable (ColourMaps::bluePhosphor),
+            TitleStyle::filled, "SPECTRAL THERAPY MODULE / SESSION 9",
+            juce::Colour (0xffe86a55), 0.16f, 0.58f,
         },
     }};
 

@@ -8,7 +8,9 @@
     This exists so the visual design can be reviewed without a Mac and without
     a DAW — the picture it produces is the same one the plugin draws.
 
-        RenderPreview <output.png> [width] [height] [theme 0-3] [spectrum 0|1]
+        RenderPreview <output.png> [width] [height] [theme 0-3] [view 0-3]
+
+    Views: 0 spectral density, 1 spectrum, 2 stereo field, 3 level chart.
 */
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -45,10 +47,6 @@ namespace
 
             auto value = 0.35 * std::sin (sweepPhase);
 
-            // A quiet harmonic stack, so there's something in the upper bands.
-            value += 0.10 * std::sin (juce::MathConstants<double>::twoPi * 440.0 * seconds);
-            value += 0.05 * std::sin (juce::MathConstants<double>::twoPi * 1320.0 * seconds);
-
             // Transient every half second, to check the two views line up.
             const auto intoBeat = std::fmod (seconds, 0.5);
 
@@ -56,8 +54,15 @@ namespace
                 value += 0.55 * std::exp (-intoBeat * 220.0)
                               * std::sin (juce::MathConstants<double>::twoPi * 90.0 * seconds);
 
+            // The harmonic stack is panned — one partial left, a detuned one
+            // right — so the stereo instruments have width and a correlation
+            // below 1 to show, while the sweep stays dead centre.
+            const auto left  = 0.14 * std::sin (juce::MathConstants<double>::twoPi * 440.0 * seconds);
+            const auto right = 0.14 * std::sin (juce::MathConstants<double>::twoPi * 447.0 * seconds)
+                             + 0.06 * std::sin (juce::MathConstants<double>::twoPi * 1320.0 * seconds);
+
             for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
-                buffer.setSample (ch, i, static_cast<float> (value));
+                buffer.setSample (ch, i, static_cast<float> (value + (ch == 0 ? left : right)));
         }
     }
 }
@@ -72,15 +77,15 @@ int main (int argc, char** argv)
 
     const auto width  = argc > 2 ? juce::String (argv[2]).getIntValue() : 940;
     const auto height = argc > 3 ? juce::String (argv[3]).getIntValue() : 600;
-    const auto theme  = argc > 4 ? juce::String (argv[4]).getIntValue() : 0;
-    const auto spectrum = argc > 5 && juce::String (argv[5]).getIntValue() != 0;
+    const auto theme = argc > 4 ? juce::String (argv[4]).getIntValue() : 0;
+    const auto view  = argc > 5 ? juce::String (argv[5]).getIntValue() : 0;
 
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 512;
 
     SpectroscopeAudioProcessor processor;
     processor.setThemeIndex (theme);
-    processor.setSpectrumMode (spectrum);
+    processor.setViewMode (view);
     processor.setPlayConfigDetails (2, 2, sampleRate, blockSize);
     processor.prepareToPlay (sampleRate, blockSize);
 

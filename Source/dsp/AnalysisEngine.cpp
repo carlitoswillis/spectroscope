@@ -26,18 +26,33 @@ void AnalysisEngine::prepare (double sampleRate, int maximumBlockSize, int numCh
     ringBuffer.prepare (channelsToStore, capacity);
     hopBuffer.setSize (channelsToStore, hopSize, false, true, false);
     monoBuffer.setSize (1, hopSize, false, true, false);
+    sideBuffer.setSize (1, hopSize, false, true, false);
 
     stft.prepare (fftOrder, hopSize, sampleRate);
+    sideStft.prepare (fftOrder, hopSize, sampleRate);
     columnScratch.assign (static_cast<size_t> (stft.getNumBins()), StftAnalyzer::floorDb);
+    sideColumnScratch.assign (static_cast<size_t> (sideStft.getNumBins()), StftAnalyzer::floorDb);
 
     // Roughly ten seconds of points: far more than any window will display, so
     // the UI only ever drops frames if it stops draining entirely.
     const auto pointsForTenSeconds = juce::roundToInt (sampleRate * 10.0 / hopSize);
     envelopeQueue.prepare (pointsForTenSeconds);
+    loudnessQueue.prepare (pointsForTenSeconds);
 
     // Columns are much larger, so a shorter backlog. Two seconds is still far
     // more than one frame's worth of catching up.
     spectrumColumns.prepare (stft.getNumBins(), juce::roundToInt (sampleRate * 2.0 / hopSize));
+    sideSpectrumColumns.prepare (stft.getNumBins(), juce::roundToInt (sampleRate * 2.0 / hopSize));
+
+    // The vectorscope trace carries every sample, so one second is already a
+    // large backlog; anything older than that is stale for display purposes.
+    stereoSamples.prepare (juce::roundToInt (sampleRate));
+
+    smoothedCorrelation.store (1.0f, std::memory_order_relaxed);
+    leftRms.store (0.0f, std::memory_order_relaxed);
+    rightRms.store (0.0f, std::memory_order_relaxed);
+    leftPeak.store (0.0f, std::memory_order_relaxed);
+    rightPeak.store (0.0f, std::memory_order_relaxed);
 
     wasActive = false;
 
@@ -76,6 +91,7 @@ void AnalysisEngine::run()
             if (! wasActive)
             {
                 stft.reset();
+                sideStft.reset();
                 discardPendingAudio();
             }
 
@@ -131,8 +147,69 @@ void AnalysisEngine::processPendingAudio()
 
         // A full queue means no view is draining it. Dropping is correct here.
         envelopeQueue.push (point);
+        loudnessQueue.push ({ juce::Decibels::gainToDecibels (point.rms, -100.0f) });
 
         if (stft.processHop (mono, columnScratch.data()))
             spectrumColumns.push (columnScratch.data());
+
+        // Mono input has no right channel and no side content: both channels
+        // read as channel 0, the side signal is silence, and correlation is 1.
+        const auto stereo      = numChannels >= 2;
+        const auto* left       = hopBuffer.getReadPointer (0);
+        const auto* right      = stereo ? hopBuffer.getReadPointer (1) : left;
+        auto* side             = sideBuffer.getWritePointer (0);
+
+        if (stereo)
+        {
+            for (int i = 0; i < hopSize; ++i)
+                side[i] = (left[i] - right[i]) * 0.5f;
+        }
+        else
+        {
+            juce::FloatVectorOperations::clear (side, hopSize);
+        }
+
+        if (sideStft.processHop (side, sideColumnScratch.data()))
+            sideSpectrumColumns.push (sideColumnScratch.data());
+
+        for (int i = 0; i < hopSize; ++i)
+            stereoSamples.push ({ left[i], right[i] });
+
+        double sumLR = 0.0, sumLL = 0.0, sumRR = 0.0;
+
+        for (int i = 0; i < hopSize; ++i)
+        {
+            sumLR += left[i] * right[i];
+            sumLL += left[i] * left[i];
+            sumRR += right[i] * right[i];
+        }
+
+        // Silence carries no phase information, so it reads as correlated
+        // rather than letting the meter drift on numerical noise.
+        const auto denominator = std::sqrt (sumLL * sumRR);
+        const auto r           = denominator < 1e-12 ? 1.0f
+                                                     : static_cast<float> (sumLR / denominator);
+
+        // ~200 ms settling at 5.3 ms hops, computed here so every hop counts
+        // even when the UI frame rate stutters.
+        auto smoothed = smoothedCorrelation.load (std::memory_order_relaxed);
+        smoothed += (r - smoothed) * 0.08f;
+        smoothedCorrelation.store (smoothed, std::memory_order_relaxed);
+
+        const auto hopLeftRms  = hopBuffer.getRMSLevel (0, 0, hopSize);
+        const auto hopRightRms = stereo ? hopBuffer.getRMSLevel (1, 0, hopSize) : hopLeftRms;
+        leftRms.store  (hopLeftRms,  std::memory_order_relaxed);
+        rightRms.store (hopRightRms, std::memory_order_relaxed);
+
+        const auto leftRange   = juce::FloatVectorOperations::findMinAndMax (left, hopSize);
+        const auto rightRange  = stereo ? juce::FloatVectorOperations::findMinAndMax (right, hopSize)
+                                        : leftRange;
+        const auto hopLeftPeak  = juce::jmax (leftRange.getEnd(),  -leftRange.getStart());
+        const auto hopRightPeak = juce::jmax (rightRange.getEnd(), -rightRange.getStart());
+
+        leftPeak.store  (juce::jmax (leftPeak.load  (std::memory_order_relaxed) * 0.99f, hopLeftPeak),
+                         std::memory_order_relaxed);
+        rightPeak.store (juce::jmax (rightPeak.load (std::memory_order_relaxed) * 0.99f, hopRightPeak),
+                         std::memory_order_relaxed);
     }
 }

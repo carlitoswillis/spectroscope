@@ -54,8 +54,8 @@ public:
     int getThemeIndex() const noexcept       { return themeIndex.load (std::memory_order_relaxed); }
     void setThemeIndex (int index) noexcept  { themeIndex.store (index, std::memory_order_relaxed); }
 
-    bool getSpectrumMode() const noexcept    { return spectrumMode.load (std::memory_order_relaxed); }
-    void setSpectrumMode (bool on) noexcept  { spectrumMode.store (on, std::memory_order_relaxed); }
+    int getViewMode() const noexcept         { return viewMode.load (std::memory_order_relaxed); }
+    void setViewMode (int mode) noexcept     { viewMode.store (juce::jlimit (0, 4, mode), std::memory_order_relaxed); }
 
 private:
     AnalysisEngine analysisEngine;
@@ -63,8 +63,8 @@ private:
     std::atomic<double> currentSampleRate { 0.0 };
     std::atomic<int>    currentBlockSize  { 0 };
 
-    std::atomic<int>  themeIndex   { 0 };
-    std::atomic<bool> spectrumMode { false };
+    std::atomic<int> themeIndex { 0 };
+    std::atomic<int> viewMode   { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectroscopeAudioProcessor)
 };
