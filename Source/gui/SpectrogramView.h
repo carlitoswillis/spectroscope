@@ -38,6 +38,8 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
     void setDecibelRange (float floorDb, float ceilingDb);
 
@@ -65,6 +67,7 @@ private:
     void renderColumnIntoImage (const float* column, int imageColumn);
     void reRenderAllHistory();
     void drawFrequencyGrid (juce::Graphics&);
+    void drawCursorReadout (juce::Graphics&);
 
     // juce::OpenGLRenderer — these run on the context's render thread.
     void newOpenGLContextCreated() override;
@@ -116,6 +119,11 @@ private:
     float dbCeiling = 0.0f;
 
     double lastMappedRate = 0.0;
+
+    // Component-layer cursor readout. -1 means the pointer is outside the
+    // view; this paints above the GL raster on the message thread same as
+    // the frequency grid, so the GPU path needs no changes of its own.
+    juce::Point<int> cursor { -1, -1 };
 
     //==========================================================================
     // GPU path.

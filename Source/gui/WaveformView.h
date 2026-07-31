@@ -22,6 +22,8 @@ public:
     ~WaveformView() override;
 
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
     /** Drops all accumulated history — dark glass, as though just powered on. */
     void clear();
@@ -32,6 +34,7 @@ public:
 private:
     void timerCallback() override;
     void drawGraticule (juce::Graphics&);
+    void drawCursorReadout (juce::Graphics&);
 
     static constexpr int ringCapacity = 8192;
     static constexpr int maxPointsPerFrame = 2048;
@@ -51,6 +54,9 @@ private:
     std::vector<Sample> smoothedScratch;
 
     const EnvelopePoint* pointAtAge (int age) const noexcept;
+
+    // -1 means the pointer is outside the view.
+    juce::Point<int> cursor { -1, -1 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformView)
 };

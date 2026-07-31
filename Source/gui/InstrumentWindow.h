@@ -29,6 +29,15 @@ public:
     /** Re-tints the chassis after a palette switch and repaints. */
     void liveryChanged();
 
+    /** OBS-friendly capture mode: sheds the native title bar and all chassis
+        painting so the view fills the window, leaving only a hover-only drag
+        strip and a corner glyph behind. The same glyph flips this back from
+        inside the window, so the call and the click are two ways into the
+        same state rather than a one-way trip.
+    */
+    void setFeedMode (bool shouldBeFeedMode);
+    bool isFeedMode() const;
+
     void closeButtonPressed() override;
     void moved() override;
     void resized() override;

@@ -5,6 +5,7 @@
 #include "LockFreeQueue.h"
 #include "ColumnRing.h"
 #include "StftAnalyzer.h"
+#include "LoudnessMeter.h"
 
 /** One hop's worth of waveform summary: the extremes that hop covered, plus its
     RMS level. Drawing min-to-max rather than decimating means a single-sample
@@ -83,6 +84,14 @@ public:
     /** One item per hop. Single consumer: LoudnessHistoryView. */
     LockFreeQueue<LoudnessPoint>& getLoudnessQueue() noexcept { return loudnessQueue; }
 
+    /** BS.1770 loudness and true peak, fed every hop. Getters are relaxed
+        atomics, so views read it directly rather than through a queue.
+    */
+    LoudnessMeter& getLoudnessMeter() noexcept { return loudnessMeter; }
+
+    /** Any thread. The reset lands at the next processed hop. */
+    void resetLoudness() noexcept { loudnessMeter.requestReset(); }
+
     /** STFT dB columns of the side channel (L-R)/2, same bin count and cadence
         as getSpectrumColumns(). Single consumer: SpectrumView.
     */
@@ -139,6 +148,7 @@ private:
     ColumnRing sideSpectrumColumns;
     StftAnalyzer stft;
     StftAnalyzer sideStft;
+    LoudnessMeter loudnessMeter;
 
     juce::AudioBuffer<float> hopBuffer;      // analysis thread only
     juce::AudioBuffer<float> monoBuffer;     // analysis thread only

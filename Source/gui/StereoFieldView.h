@@ -33,6 +33,16 @@ public:
     /** Wipes the persistence glass and lets the needles fall. */
     void clear();
 
+    /** Freezes the current persistence cloud as a ghost trace held under the
+        live one; calling again while a trace is held drops it. A second
+        exposure to compare against the first, the way a darkroom tech pins
+        a reference print beside the one still developing.
+    */
+    void toggleStore();
+
+    /** True while a stored trace is held. */
+    bool hasStoredTrace() const noexcept { return storedTrace.isValid(); }
+
 private:
     void timerCallback() override;
 
@@ -69,6 +79,7 @@ private:
     AnalysisEngine& engine;
 
     juce::Image persistence;
+    juce::Image storedTrace;
     std::vector<StereoSample> scratch;
     int dotPhase = 0;
 

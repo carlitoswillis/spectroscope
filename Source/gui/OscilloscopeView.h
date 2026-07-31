@@ -23,6 +23,8 @@ public:
     ~OscilloscopeView() override;
 
     void paint (juce::Graphics&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
 
     /** The stereo sample queue feeds whichever view is active; an inactive
         view stops its timer so it never steals samples from the other.
@@ -35,6 +37,7 @@ public:
 private:
     void timerCallback() override;
     void drawGraticule (juce::Graphics&);
+    void drawCursorReadout (juce::Graphics&);
 
     /** Age of the trigger-point sample (0 = newest), or -1 when no crossing
         was found within the search span.
@@ -62,6 +65,9 @@ private:
     int numStored = 0;
 
     bool lastFrameTriggered = false;
+
+    // -1 means the pointer is outside the view.
+    juce::Point<int> cursor { -1, -1 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OscilloscopeView)
 };

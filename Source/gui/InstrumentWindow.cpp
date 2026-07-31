@@ -6,6 +6,12 @@ namespace
     constexpr int margin      = 8;
     constexpr int labelHeight = 13;
     constexpr int screenGap   = 7;   // clearance for the recessed frame and brackets
+
+    // Feed mode: a chrome-less capture surface for OBS.
+    constexpr int feedDragStripHeight  = 14;   // hover-only strip along the top edge
+    constexpr int feedGlyphSize        = 12;
+    constexpr int feedGlyphInset       = 3;
+    constexpr int defaultTitleBarHeight = 26;  // DocumentWindow's own built-in default
 }
 
 //==============================================================================
@@ -33,8 +39,39 @@ public:
         view = nullptr;
     }
 
+    /** Invoked when the corner glyph is clicked — the window owns the chrome
+        change (native title bar, chassis), this panel only owns the layout
+        and paint of its own feed state.
+    */
+    std::function<void()> onToggleFeedMode;
+
+    void setFeedMode (bool shouldBeFeedMode)
+    {
+        if (feedMode == shouldBeFeedMode)
+            return;
+
+        feedMode = shouldBeFeedMode;
+        dragStripHovered = false;
+        draggingViaStrip = false;
+        resized();
+        repaint();
+    }
+
+    bool isFeedMode() const noexcept { return feedMode; }
+
     void resized() override
     {
+        if (feedMode)
+        {
+            auto area = getLocalBounds();
+            area.removeFromTop (feedDragStripHeight);
+
+            if (view != nullptr)
+                view->setBounds (area);
+
+            return;
+        }
+
         auto area = getLocalBounds().reduced (margin);
         area.removeFromTop (labelHeight);
 
@@ -44,6 +81,12 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        if (feedMode)
+        {
+            paintFeedMode (g);
+            return;
+        }
+
         g.setGradientFill (juce::ColourGradient (Theme::palette().shellMid, 0.0f, 0.0f,
                                                  Theme::palette().shellDark, 0.0f, static_cast<float> (getHeight()),
                                                  false));
@@ -76,11 +119,114 @@ public:
                                     juce::Point<float> (inset, bottom),
                                     juce::Point<float> (right, bottom) })
             Theme::drawRivet (g, corner);
+
+        // The feed-mode toggle rides along in normal mode too — it's the
+        // only way back in once the chassis is gone, so it has to be
+        // reachable before it's ever needed.
+        drawFeedGlyph (g);
     }
 
 private:
+    void paintFeedMode (juce::Graphics& g)
+    {
+        g.fillAll (Theme::palette().screenBlack);
+
+        if (dragStripHovered)
+        {
+            auto strip = getLocalBounds().removeFromTop (feedDragStripHeight).toFloat();
+            g.setColour (Theme::palette().boneDim.withAlpha (0.35f));
+
+            constexpr float dashWidth = 22.0f, gap = 3.0f;
+            const auto left = strip.getCentreX() - dashWidth * 0.5f;
+            const auto centreY = strip.getCentreY();
+
+            for (int i = -1; i <= 1; ++i)
+                g.drawLine (left, centreY + static_cast<float> (i) * gap,
+                           left + dashWidth, centreY + static_cast<float> (i) * gap, 1.0f);
+        }
+
+        drawFeedGlyph (g);
+    }
+
+    /** A silkscreen-scale echo of the chassis corner brackets, small enough
+        to sit out of the way in either mode; the dot inside brightens once
+        feed mode is live.
+    */
+    void drawFeedGlyph (juce::Graphics& g) const
+    {
+        auto bounds = feedGlyphBounds();
+
+        Theme::drawCornerBrackets (g, bounds, Theme::palette().boneDim.withAlpha (0.55f), 4, 1.0f);
+
+        g.setColour (Theme::palette().boneDim.withAlpha (feedMode ? 0.75f : 0.4f));
+        g.fillEllipse (bounds.toFloat().reduced (4.0f));
+    }
+
+    juce::Rectangle<int> feedGlyphBounds() const
+    {
+        return { getWidth() - feedGlyphInset - feedGlyphSize, feedGlyphInset, feedGlyphSize, feedGlyphSize };
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        if (! feedMode)
+            return;
+
+        const bool hovered = e.position.y < static_cast<float> (feedDragStripHeight);
+
+        if (hovered != dragStripHovered)
+        {
+            dragStripHovered = hovered;
+            repaint (getLocalBounds().removeFromTop (feedDragStripHeight));
+        }
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        if (dragStripHovered)
+        {
+            dragStripHovered = false;
+            repaint (getLocalBounds().removeFromTop (feedDragStripHeight));
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        draggingViaStrip = feedMode
+                            && e.position.y < static_cast<float> (feedDragStripHeight)
+                            && ! feedGlyphBounds().contains (e.getPosition());
+
+        if (! draggingViaStrip)
+            return;
+
+        if (auto* window = getTopLevelComponent())
+            dragger.startDraggingComponent (window, e);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! draggingViaStrip)
+            return;
+
+        if (auto* window = getTopLevelComponent())
+            dragger.dragComponent (window, e, nullptr);
+    }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        draggingViaStrip = false;
+
+        if (feedGlyphBounds().contains (e.getPosition()) && onToggleFeedMode != nullptr)
+            onToggleFeedMode();
+    }
+
     juce::String caption, annotation;
     juce::Component* view;   // non-owning — the editor holds the instrument
+
+    bool feedMode = false;
+    bool dragStripHovered = false;
+    bool draggingViaStrip = false;
+    juce::ComponentDragger dragger;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Panel)
 };
@@ -97,6 +243,8 @@ InstrumentWindow::InstrumentWindow (juce::StringRef caption, juce::StringRef ann
     setAlwaysOnTop (true);
     centreWithSize (560, 320);
     setVisible (true);
+
+    panel->onToggleFeedMode = [this] { setFeedMode (! panel->isFeedMode()); };
 }
 
 InstrumentWindow::~InstrumentWindow()
@@ -111,6 +259,32 @@ void InstrumentWindow::liveryChanged()
 {
     setBackgroundColour (Theme::palette().shellDark);
     panel->repaint();
+}
+
+void InstrumentWindow::setFeedMode (bool shouldBeFeedMode)
+{
+    if (panel->isFeedMode() == shouldBeFeedMode)
+        return;
+
+    panel->setFeedMode (shouldBeFeedMode);
+
+    if (shouldBeFeedMode)
+    {
+        setTitleBarHeight (0);
+        setUsingNativeTitleBar (false);
+    }
+    else
+    {
+        setUsingNativeTitleBar (true);
+        setTitleBarHeight (defaultTitleBarHeight);
+    }
+
+    resized();
+}
+
+bool InstrumentWindow::isFeedMode() const
+{
+    return panel->isFeedMode();
 }
 
 void InstrumentWindow::closeButtonPressed()

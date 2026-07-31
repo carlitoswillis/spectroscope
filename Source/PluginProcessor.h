@@ -48,6 +48,28 @@ public:
 
     AnalysisEngine& getAnalysisEngine() noexcept   { return analysisEngine; }
 
+    /** Alignment tone: when engaged, processBlock feeds the meters a generated
+        -18 dBFS 1 kHz sine instead of the input. The audio output stays
+        bit-for-bit pass-through — the tone exists only for the analysis side.
+    */
+    void setAlignmentToneEnabled (bool enabled) noexcept
+    {
+        alignmentToneEnabled.store (enabled, std::memory_order_relaxed);
+    }
+
+    bool isAlignmentToneEnabled() const noexcept
+    {
+        return alignmentToneEnabled.load (std::memory_order_relaxed);
+    }
+
+    /** Rising-edge counts of the host-automatable trigger parameters. The
+        editor polls and diffs these on its timer; a count rather than a level
+        means a pulse that rises and falls between two ticks still lands.
+    */
+    int getClearEvents() const noexcept  { return clearEvents.load (std::memory_order_relaxed); }
+    int getStoreEvents() const noexcept  { return storeEvents.load (std::memory_order_relaxed); }
+    int getMarkerEvents() const noexcept { return markerEvents.load (std::memory_order_relaxed); }
+
     /** Display settings live on the processor so they survive the editor being
         closed and reopened, and travel with the session via state.
     */
@@ -89,6 +111,28 @@ public:
 
 private:
     AnalysisEngine analysisEngine;
+
+    // Momentary trigger switches, host-automatable. Owned by the AudioProcessor
+    // once addParameter has taken them.
+    juce::AudioParameterBool* clearParam  = nullptr;
+    juce::AudioParameterBool* storeParam  = nullptr;
+    juce::AudioParameterBool* markerParam = nullptr;
+
+    std::atomic<int> clearEvents  { 0 };
+    std::atomic<int> storeEvents  { 0 };
+    std::atomic<int> markerEvents { 0 };
+
+    // Edge memory for the trigger parameters — audio thread only.
+    bool previousClear  = false;
+    bool previousStore  = false;
+    bool previousMarker = false;
+
+    std::atomic<bool> alignmentToneEnabled { false };
+
+    // Tone store sized in prepareToPlay so the audio thread never allocates;
+    // phase accumulates across blocks so the sine is continuous.
+    juce::AudioBuffer<float> toneBuffer;
+    double tonePhase = 0.0;
 
     std::atomic<double> currentSampleRate { 0.0 };
     std::atomic<int>    currentBlockSize  { 0 };

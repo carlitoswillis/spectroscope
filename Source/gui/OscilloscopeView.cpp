@@ -1,6 +1,53 @@
 #include "OscilloscopeView.h"
 #include "Theme.h"
 
+namespace
+{
+    // Readout box near the pointer, clamped inside the view: screenBlack glass
+    // over amberBright print, the weight of a panel-mounted meter window.
+    void drawReadoutBox (juce::Graphics& g, juce::Rectangle<float> bounds,
+                         juce::Point<float> pointer, const juce::StringArray& lines)
+    {
+        const juce::Font font (Theme::mono (9.0f));
+
+        auto textWidth = 0.0f;
+
+        for (const auto& line : lines)
+            textWidth = juce::jmax (textWidth, juce::GlyphArrangement::getStringWidth (font, line));
+
+        constexpr auto lineHeight = 11.0f;
+        const auto boxWidth = textWidth + 10.0f;
+        const auto boxHeight = lineHeight * static_cast<float> (lines.size()) + 6.0f;
+
+        auto x = pointer.x + 10.0f;
+        auto y = pointer.y + 10.0f;
+
+        // Flip to whichever side of the pointer keeps the box on the glass.
+        if (x + boxWidth > bounds.getRight())
+            x = pointer.x - 10.0f - boxWidth;
+
+        if (y + boxHeight > bounds.getBottom())
+            y = pointer.y - 10.0f - boxHeight;
+
+        x = juce::jlimit (bounds.getX(), juce::jmax (bounds.getX(), bounds.getRight() - boxWidth), x);
+        y = juce::jlimit (bounds.getY(), juce::jmax (bounds.getY(), bounds.getBottom() - boxHeight), y);
+
+        const juce::Rectangle<float> box (x, y, boxWidth, boxHeight);
+
+        g.setColour (Theme::palette().screenBlack.withAlpha (0.85f));
+        g.fillRect (box);
+
+        g.setFont (font);
+        g.setColour (Theme::palette().amberBright);
+
+        for (int i = 0; i < lines.size(); ++i)
+            g.drawText (lines[i],
+                        juce::Rectangle<float> (box.getX() + 5.0f, box.getY() + 3.0f + lineHeight * static_cast<float> (i),
+                                                boxWidth - 10.0f, lineHeight),
+                        juce::Justification::centredLeft);
+    }
+}
+
 OscilloscopeView::OscilloscopeView (AnalysisEngine& e)
     : engine (e)
 {
@@ -44,6 +91,18 @@ void OscilloscopeView::clear()
     head = 0;
     numStored = 0;
     lastFrameTriggered = false;
+    repaint();
+}
+
+void OscilloscopeView::mouseMove (const juce::MouseEvent& event)
+{
+    cursor = event.getPosition();
+    repaint();
+}
+
+void OscilloscopeView::mouseExit (const juce::MouseEvent&)
+{
+    cursor = { -1, -1 };
     repaint();
 }
 
@@ -154,12 +213,57 @@ void OscilloscopeView::drawGraticule (juce::Graphics& g)
     }
 }
 
+void OscilloscopeView::drawCursorReadout (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+
+    if (cursor.x < 0 || ! bounds.contains (cursor.toFloat()))
+        return;
+
+    const auto sampleRate = engine.getSampleRate();
+
+    if (sampleRate <= 0.0 || bounds.getWidth() <= 0.0f)
+        return;
+
+    const auto fx = static_cast<float> (cursor.x);
+    const auto fy = static_cast<float> (cursor.y);
+
+    const float dashes[] = { 4.0f, 3.0f };
+
+    g.setColour (Theme::palette().boneDim.withAlpha (0.5f));
+    g.drawDashedLine (juce::Line<float> (bounds.getX(), fy, bounds.getRight(), fy), dashes, 2, 1.0f);
+    g.drawDashedLine (juce::Line<float> (fx, bounds.getY(), fx, bounds.getBottom()), dashes, 2, 1.0f);
+
+    // Same sweep length the SWEEP readout labels, scaled by fraction across.
+    const auto sweepMs = 1000.0 * windowLength / sampleRate;
+    const auto ms = (fx - bounds.getX()) / bounds.getWidth() * sweepMs;
+
+    // Invert paint()'s toY(): centreY - clamp(value) * halfHeight.
+    const auto centreY = bounds.getCentreY();
+    const auto halfHeight = bounds.getHeight() * 0.5f;
+    const auto amplitude = halfHeight > 0.0f
+        ? juce::jlimit (-1.0f, 1.0f, (centreY - fy) / halfHeight)
+        : 0.0f;
+
+    const auto db = 20.0f * std::log10 (std::abs (amplitude));
+    const auto dbText = db < -80.0f ? juce::String ("-INF DB") : juce::String (db, 1) + " DB";
+
+    const juce::StringArray lines
+    {
+        juce::String (ms, 1) + " MS",
+        dbText,
+    };
+
+    drawReadoutBox (g, bounds, { fx, fy }, lines);
+}
+
 void OscilloscopeView::paint (juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
 
     g.fillAll (Theme::palette().screenBlack);
     drawGraticule (g);
+    drawCursorReadout (g);
 
     const auto centreY = bounds.getCentreY();
     const auto halfHeight = bounds.getHeight() * 0.5f;

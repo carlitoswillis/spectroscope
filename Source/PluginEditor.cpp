@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "gui/Theme.h"
+#include "gui/SessionReport.h"
 
 namespace
 {
@@ -12,6 +13,8 @@ namespace
     constexpr int railHeight   = 18;
     constexpr int switchWidth  = 66;
     constexpr int switchGap    = 4;
+    constexpr int plateWidth   = 50;
+    constexpr int photoStripHeight = 26;
 
     // Relative heights when a pane is enabled, normalised over the enabled set.
     constexpr float paneWeights[] = { 0.62f, 1.0f, 1.0f, 1.0f, 0.75f, 0.75f };
@@ -108,6 +111,31 @@ SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (Spectroscope
             processor.setWindowLayout (savedLayout);
             floatPane (i);
         }
+    }
+
+    // Trigger-parameter counts start from wherever the processor already is,
+    // so reopening the editor never replays actions that fired while closed.
+    lastClearEvents  = processor.getClearEvents();
+    lastStoreEvents  = processor.getStoreEvents();
+    lastMarkerEvents = processor.getMarkerEvents();
+
+    // The boot test card, standalone only, added after everything — above
+    // even the CRT glass. Its dismissal comes from its own timer, so the
+    // deletion waits for the next message-loop tick.
+    if (juce::JUCEApplicationBase::isStandaloneApp())
+    {
+        bootCard = std::make_unique<BootCard>();
+
+        bootCard->onDismissed = [safe = juce::Component::SafePointer<SpectroscopeAudioProcessorEditor> (this)]
+        {
+            juce::MessageManager::callAsync ([safe]
+            {
+                if (safe != nullptr)
+                    safe->bootCard.reset();
+            });
+        };
+
+        addAndMakeVisible (*bootCard);
     }
 
     // Cmd+R clears the displays. Hosts usually eat keystrokes before a plugin
@@ -276,6 +304,131 @@ void SpectroscopeAudioProcessorEditor::clearAllDisplays()
     stereoFieldView.clear();
     loudnessView.clear();
     oscilloscopeView.clear();
+
+    // The meter's integration is history too — new song, fresh gate.
+    processor.getAnalysisEngine().resetLoudness();
+}
+
+void SpectroscopeAudioProcessorEditor::toggleStoredTraces()
+{
+    spectrumView.toggleStore();
+    stereoFieldView.toggleStore();
+    repaint (railArea);
+}
+
+void SpectroscopeAudioProcessorEditor::withGpuPaused (const std::function<void()>& action)
+{
+    // A GL-backed spectrogram snapshots black, so the capture happens on the
+    // CPU raster — the same pause float/dock uses around a reparent.
+    const auto gpuPause = juce::JUCEApplicationBase::isStandaloneApp();
+
+    if (gpuPause)
+        spectrogramView.setGpuEnabled (false);
+
+    action();
+
+    if (gpuPause)
+        spectrogramView.setGpuEnabled (true);
+}
+
+void SpectroscopeAudioProcessorEditor::capturePhoto()
+{
+    juce::Image snapshot;
+    withGpuPaused ([this, &snapshot] { snapshot = createComponentSnapshot (getLocalBounds()); });
+
+    if (snapshot.isNull())
+        return;
+
+    // The data strip rides only the saved image: wordmark, livery, date and
+    // the headline loudness figures, like the burn-in bar on a camera log.
+    juce::Image framed (juce::Image::RGB, snapshot.getWidth(),
+                        snapshot.getHeight() + photoStripHeight, true);
+    juce::Graphics g (framed);
+
+    g.drawImageAt (snapshot, 0, 0);
+
+    const auto strip = juce::Rectangle<int> (0, snapshot.getHeight(),
+                                             framed.getWidth(), photoStripHeight);
+
+    g.setColour (Theme::palette().shellDark);
+    g.fillRect (strip);
+
+    g.setColour (Theme::palette().bezelHi.withAlpha (0.6f));
+    g.drawHorizontalLine (strip.getY(), 0.0f, static_cast<float> (framed.getWidth()));
+
+    auto& meter = processor.getAnalysisEngine().getLoudnessMeter();
+
+    const auto figure = [] (float value, juce::StringRef suffix)
+    {
+        return (value > -100.0f ? juce::String (value, 1) : juce::String ("--")) + suffix;
+    };
+
+    auto inner = strip.reduced (10, 0);
+
+    g.setColour (Theme::palette().amber);
+    g.setFont (Theme::mono (9.5f, true));
+    g.drawText (Theme::spaced ("SPECTROSCOPE"),
+                inner.removeFromLeft (juce::jmin (170, inner.getWidth() / 3)),
+                juce::Justification::centredLeft);
+
+    g.setColour (Theme::palette().bone.withAlpha (0.85f));
+    g.setFont (Theme::mono (9.0f));
+    g.drawText ("INT " + figure (meter.getIntegratedLufs(), " LUFS")
+                       + "  /  TP " + figure (meter.getMaxTruePeakDb(), " DBTP"),
+                inner.removeFromRight (juce::jmin (240, inner.getWidth() / 2)),
+                juce::Justification::centredRight);
+
+    g.setColour (Theme::palette().boneDim.withAlpha (0.8f));
+    g.drawText (juce::String (Theme::palette().unit) + " " + Theme::palette().name
+                    + "  /  " + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M"),
+                inner, juce::Justification::centred);
+
+    const auto file = juce::File::getSpecialLocation (juce::File::userDesktopDirectory)
+                          .getChildFile ("Spectroscope "
+                                         + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H%M%S")
+                                         + ".png");
+
+    // FileOutputStream appends, so any same-second leftover goes first.
+    file.deleteFile();
+
+    juce::FileOutputStream stream (file);
+
+    if (stream.openedOk())
+        juce::PNGImageFormat().writeImageToStream (framed, stream);
+}
+
+void SpectroscopeAudioProcessorEditor::writeSessionLog()
+{
+    const auto livery = juce::String (Theme::palette().unit) + " " + Theme::palette().name;
+    juce::File folder;
+
+    withGpuPaused ([this, &livery, &folder]
+    {
+        folder = SessionReport::write (*this, loudnessView,
+                                       processor.getAnalysisEngine().getLoudnessMeter(),
+                                       livery);
+    });
+
+    if (folder != juce::File())
+        folder.revealToUser();
+}
+
+void SpectroscopeAudioProcessorEditor::railPlatePressed (int index)
+{
+    switch (index)
+    {
+        case 0: toggleStoredTraces(); break;
+        case 1: loudnessView.addMarker(); break;
+        case 2: capturePhoto(); break;
+        case 3: writeSessionLog(); break;
+
+        case 4:
+            processor.setAlignmentToneEnabled (! processor.isAlignmentToneEnabled());
+            repaint (railArea);
+            break;
+
+        default: break;
+    }
 }
 
 void SpectroscopeAudioProcessorEditor::toggleFullScreen()
@@ -304,6 +457,31 @@ bool SpectroscopeAudioProcessorEditor::keyPressed (const juce::KeyPress& key)
     {
         toggleFullScreen();
         return true;
+    }
+
+    // Bare letters reach us in the standalone; hosts keep them, which is what
+    // the rail plates are for.
+    if (! key.getModifiers().isAnyModifierKeyDown())
+    {
+        const auto code = key.getKeyCode();
+
+        if (code == 'S' || code == 's')
+        {
+            toggleStoredTraces();
+            return true;
+        }
+
+        if (code == 'M' || code == 'm')
+        {
+            loudnessView.addMarker();
+            return true;
+        }
+
+        if (code == 'P' || code == 'p')
+        {
+            capturePhoto();
+            return true;
+        }
     }
 
     return false;
@@ -348,6 +526,15 @@ void SpectroscopeAudioProcessorEditor::mouseDown (const juce::MouseEvent& event)
         return;
     }
 
+    for (int i = 0; i < numRailPlates; ++i)
+    {
+        if (railPlateAreas[i].contains (position))
+        {
+            railPlatePressed (i);
+            return;
+        }
+    }
+
     for (int i = 0; i < numPanes; ++i)
     {
         if (popOutAreas[i].contains (position))
@@ -378,6 +565,9 @@ void SpectroscopeAudioProcessorEditor::mouseMove (const juce::MouseEvent& event)
                   || fullScreenSwitchArea.contains (position);
 
     for (const auto& area : switchAreas)
+        clickable = clickable || area.contains (position);
+
+    for (const auto& area : railPlateAreas)
         clickable = clickable || area.contains (position);
 
     for (const auto& area : popOutAreas)
@@ -411,6 +601,41 @@ void SpectroscopeAudioProcessorEditor::timerCallback()
         droppedCount = dropped;
         repaint (headerArea.expanded (2));
     }
+
+    // Host-automated triggers arrive as event counts; a diff is an action.
+    const auto clearCount = processor.getClearEvents();
+    const auto storeCount = processor.getStoreEvents();
+    const auto markerCount = processor.getMarkerEvents();
+
+    if (clearCount != lastClearEvents)
+    {
+        lastClearEvents = clearCount;
+        clearAllDisplays();
+    }
+
+    if (storeCount != lastStoreEvents)
+    {
+        lastStoreEvents = storeCount;
+        toggleStoredTraces();
+    }
+
+    if (markerCount != lastMarkerEvents)
+    {
+        lastMarkerEvents = markerCount;
+        loudnessView.addMarker();
+    }
+
+    // Engaged lamps can move without a click here — keyboard, host triggers —
+    // so the rail repaints whenever either latch actually changed.
+    const auto storeEngaged = spectrumView.hasStoredTrace() || stereoFieldView.hasStoredTrace();
+    const auto toneEngaged = processor.isAlignmentToneEnabled();
+
+    if (storeEngaged != storePlateEngaged || toneEngaged != tonePlateEngaged)
+    {
+        storePlateEngaged = storeEngaged;
+        tonePlateEngaged = toneEngaged;
+        repaint (railArea);
+    }
 }
 
 void SpectroscopeAudioProcessorEditor::resized()
@@ -418,6 +643,9 @@ void SpectroscopeAudioProcessorEditor::resized()
     auto area = getLocalBounds().reduced (outerMargin);
 
     crtOverlay.setBounds (getLocalBounds());
+
+    if (bootCard != nullptr)
+        bootCard->setBounds (getLocalBounds());
 
     headerArea = area.removeFromTop (headerHeight);
     footerArea = area.removeFromBottom (footerHeight);
@@ -441,11 +669,26 @@ void SpectroscopeAudioProcessorEditor::resized()
     area.removeFromTop (2);
 
     auto rail = area.removeFromTop (railHeight);
+    railArea = rail;
 
     for (auto& switchArea : switchAreas)
     {
         switchArea = rail.removeFromLeft (switchWidth);
         rail.removeFromLeft (switchGap);
+    }
+
+    // Utility plates take whatever the pane switches left, right-justified.
+    // When width runs out they yield first, dropping from the left of the
+    // bank, so a pane switch is never the one that goes.
+    railPlateAreas.fill ({});
+
+    for (int i = numRailPlates; --i >= 0;)
+    {
+        if (rail.getWidth() < plateWidth)
+            break;
+
+        railPlateAreas[i] = rail.removeFromRight (plateWidth);
+        rail.removeFromRight (switchGap);
     }
 
     area.removeFromTop (paneGap);
@@ -549,6 +792,32 @@ void SpectroscopeAudioProcessorEditor::paintSwitchRail (juce::Graphics& g)
                              : Theme::palette().boneDim.withAlpha (0.5f));
         g.setFont (Theme::mono (8.0f, true));
         g.drawText (labels[i], plate.withTrimmedRight (3), juce::Justification::centredLeft);
+    }
+
+    // The utility bank, same silkscreen as CLR. STORE and TONE latch, so
+    // their plates take the engaged border; the rest are momentary.
+    const juce::String plateLabels[numRailPlates] = { "STORE", "MARK", "PHOTO", "LOG", "TONE" };
+    const bool plateEngaged[numRailPlates] = {
+        spectrumView.hasStoredTrace() || stereoFieldView.hasStoredTrace(),
+        false, false, false,
+        processor.isAlignmentToneEnabled()
+    };
+
+    for (int i = 0; i < numRailPlates; ++i)
+    {
+        const auto plate = railPlateAreas[i];
+
+        if (plate.isEmpty())
+            continue;
+
+        g.setColour (plateEngaged[i] ? Theme::palette().amber.withAlpha (0.7f)
+                                     : Theme::palette().boneDim.withAlpha (0.5f));
+        g.drawRect (plate, 1);
+
+        g.setColour (plateEngaged[i] ? Theme::palette().bone
+                                     : Theme::palette().bone.withAlpha (0.8f));
+        g.setFont (Theme::mono (8.0f, true));
+        g.drawText (plateLabels[i], plate, juce::Justification::centred);
     }
 }
 

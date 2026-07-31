@@ -44,6 +44,7 @@ target_sources(Spectroscope PRIVATE
     Source/dsp/SampleRingBuffer.cpp
     Source/dsp/AnalysisEngine.cpp
     Source/dsp/StftAnalyzer.cpp
+    Source/dsp/LoudnessMeter.cpp
     Source/gui/WaveformView.cpp
     Source/gui/SpectrogramView.cpp
     Source/gui/SpectrumView.cpp
@@ -51,6 +52,8 @@ target_sources(Spectroscope PRIVATE
     Source/gui/LoudnessHistoryView.cpp
     Source/gui/OscilloscopeView.cpp
     Source/gui/InstrumentWindow.cpp
+    Source/gui/SessionReport.cpp
+    Source/gui/BootCard.cpp
     Source/gui/CrtOverlay.cpp)
 
 target_compile_definitions(Spectroscope PUBLIC
@@ -81,7 +84,8 @@ target_sources(SpectroscopeTests PRIVATE
     Tests/DspTests.cpp
     Source/dsp/SampleRingBuffer.cpp
     Source/dsp/AnalysisEngine.cpp
-    Source/dsp/StftAnalyzer.cpp)
+    Source/dsp/StftAnalyzer.cpp
+    Source/dsp/LoudnessMeter.cpp)
 
 target_compile_definitions(SpectroscopeTests PRIVATE
     JUCE_WEB_BROWSER=0
@@ -118,6 +122,7 @@ if(SPECTROSCOPE_BUILD_PREVIEW)
         Source/dsp/SampleRingBuffer.cpp
         Source/dsp/AnalysisEngine.cpp
         Source/dsp/StftAnalyzer.cpp
+        Source/dsp/LoudnessMeter.cpp
         Source/gui/WaveformView.cpp
         Source/gui/SpectrogramView.cpp
         Source/gui/SpectrumView.cpp
@@ -125,6 +130,8 @@ if(SPECTROSCOPE_BUILD_PREVIEW)
         Source/gui/LoudnessHistoryView.cpp
         Source/gui/OscilloscopeView.cpp
         Source/gui/InstrumentWindow.cpp
+        Source/gui/SessionReport.cpp
+        Source/gui/BootCard.cpp
         Source/gui/CrtOverlay.cpp)
 
     target_compile_definitions(RenderPreview PRIVATE

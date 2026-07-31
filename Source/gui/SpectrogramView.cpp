@@ -78,6 +78,67 @@ namespace
             gl_FragColor = vec4 (colour, 1.0);
         }
     )";
+
+    // Nearest semitone off an A440 reference, plus the residual in cents. No
+    // enharmonic preference beyond sharps, matching period frequency counters.
+    juce::String noteNameForFrequency (double hz)
+    {
+        static constexpr const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+
+        const auto midi = 69.0 + 12.0 * std::log2 (hz / 440.0);
+        const auto nearest = juce::roundToInt (midi);
+        const auto cents = juce::roundToInt ((midi - static_cast<double> (nearest)) * 100.0);
+
+        const auto octave = nearest / 12 - 1;
+        const auto index = ((nearest % 12) + 12) % 12;
+
+        return juce::String (names[index]) + juce::String (octave) + " "
+             + (cents > 0 ? "+" : "") + juce::String (cents) + "C";
+    }
+
+    // Readout box near the pointer, clamped inside the view: screenBlack glass
+    // over amberBright print, the weight of a panel-mounted meter window.
+    void drawReadoutBox (juce::Graphics& g, juce::Rectangle<float> bounds,
+                         juce::Point<float> pointer, const juce::StringArray& lines)
+    {
+        const juce::Font font (Theme::mono (9.0f));
+
+        auto textWidth = 0.0f;
+
+        for (const auto& line : lines)
+            textWidth = juce::jmax (textWidth, juce::GlyphArrangement::getStringWidth (font, line));
+
+        constexpr auto lineHeight = 11.0f;
+        const auto boxWidth = textWidth + 10.0f;
+        const auto boxHeight = lineHeight * static_cast<float> (lines.size()) + 6.0f;
+
+        auto x = pointer.x + 10.0f;
+        auto y = pointer.y + 10.0f;
+
+        // Flip to whichever side of the pointer keeps the box on the glass.
+        if (x + boxWidth > bounds.getRight())
+            x = pointer.x - 10.0f - boxWidth;
+
+        if (y + boxHeight > bounds.getBottom())
+            y = pointer.y - 10.0f - boxHeight;
+
+        x = juce::jlimit (bounds.getX(), juce::jmax (bounds.getX(), bounds.getRight() - boxWidth), x);
+        y = juce::jlimit (bounds.getY(), juce::jmax (bounds.getY(), bounds.getBottom() - boxHeight), y);
+
+        const juce::Rectangle<float> box (x, y, boxWidth, boxHeight);
+
+        g.setColour (Theme::palette().screenBlack.withAlpha (0.85f));
+        g.fillRect (box);
+
+        g.setFont (font);
+        g.setColour (Theme::palette().amberBright);
+
+        for (int i = 0; i < lines.size(); ++i)
+            g.drawText (lines[i],
+                        juce::Rectangle<float> (box.getX() + 5.0f, box.getY() + 3.0f + lineHeight * static_cast<float> (i),
+                                                boxWidth - 10.0f, lineHeight),
+                        juce::Justification::centredLeft);
+    }
 }
 
 SpectrogramView::SpectrogramView (AnalysisEngine& e)
@@ -223,6 +284,18 @@ void SpectrogramView::resized()
     rebuildImage();
     rebuildRowMapping();
     reRenderAllHistory();
+}
+
+void SpectrogramView::mouseMove (const juce::MouseEvent& event)
+{
+    cursor = event.getPosition();
+    repaint();
+}
+
+void SpectrogramView::mouseExit (const juce::MouseEvent&)
+{
+    cursor = { -1, -1 };
+    repaint();
 }
 
 void SpectrogramView::rebuildImage()
@@ -466,8 +539,9 @@ void SpectrogramView::paint (juce::Graphics& g)
     if (gpuEnabled)
     {
         // The GL frame beneath already carries the raster and the glass; only
-        // the grid and labels belong up here.
+        // the grid, labels and cursor readout belong up here.
         drawFrequencyGrid (g);
+        drawCursorReadout (g);
         return;
     }
 
@@ -492,6 +566,7 @@ void SpectrogramView::paint (juce::Graphics& g)
                      0, 0, imageWrite, height);
 
     drawFrequencyGrid (g);
+    drawCursorReadout (g);
 }
 
 void SpectrogramView::drawFrequencyGrid (juce::Graphics& g)
@@ -540,6 +615,45 @@ void SpectrogramView::drawFrequencyGrid (juce::Graphics& g)
                     juce::Rectangle<float> (4.0f, y + 1.0f, 34.0f, 11.0f),
                     juce::Justification::centredLeft);
     }
+}
+
+void SpectrogramView::drawCursorReadout (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+
+    if (cursor.x < 0 || ! bounds.contains (cursor.toFloat()))
+        return;
+
+    const auto nyquist = engine.getSampleRate() * 0.5;
+
+    // Same guard rebuildRowMapping() uses — until the sample rate is known,
+    // there is no Hz-to-row mapping to invert.
+    if (nyquist <= minFrequencyHz)
+        return;
+
+    const auto fx = static_cast<float> (cursor.x);
+    const auto fy = static_cast<float> (cursor.y);
+
+    const float dashes[] = { 4.0f, 3.0f };
+
+    g.setColour (Theme::palette().boneDim.withAlpha (0.5f));
+    g.drawDashedLine (juce::Line<float> (bounds.getX(), fy, bounds.getRight(), fy), dashes, 2, 1.0f);
+    g.drawDashedLine (juce::Line<float> (fx, bounds.getY(), fx, bounds.getBottom()), dashes, 2, 1.0f);
+
+    // Invert drawFrequencyGrid's y = height * (1 - log(hz/min) / logSpan).
+    const auto logSpan = std::log (nyquist / minFrequencyHz);
+    const auto hz = minFrequencyHz * std::exp ((1.0 - fy / bounds.getHeight()) * logSpan);
+
+    const auto secondsBeforeNow = (bounds.getRight() - fx) * engine.getSecondsPerPoint();
+
+    const juce::StringArray lines
+    {
+        hz >= 1000.0 ? juce::String (hz / 1000.0, 2) + "K HZ" : juce::String (hz, 1) + " HZ",
+        noteNameForFrequency (hz),
+        juce::String (-secondsBeforeNow, 1) + " S",
+    };
+
+    drawReadoutBox (g, bounds, { fx, fy }, lines);
 }
 
 //==============================================================================

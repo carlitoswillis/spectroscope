@@ -85,15 +85,42 @@ void StereoFieldView::clear()
     if (persistence.isValid())
         persistence.clear (persistence.getBounds(), Theme::palette().screenBlack);
 
+    storedTrace = {};
+
     leftNeedle = 0.0f;
     rightNeedle = 0.0f;
     correlationDisplay = 1.0f;
     repaint();
 }
 
+void StereoFieldView::toggleStore()
+{
+    if (storedTrace.isValid())
+    {
+        storedTrace = {};
+    }
+    else if (persistence.isValid())
+    {
+        storedTrace = persistence.createCopy();
+
+        // Wash the frozen cloud toward amberDim so it reads as a different
+        // exposure than the live trace developing on top of it, not a
+        // second copy of the same one.
+        juce::Graphics tg (storedTrace);
+        tg.setColour (Theme::palette().amberDim.withAlpha (0.30f));
+        tg.fillAll();
+    }
+
+    repaint();
+}
+
 void StereoFieldView::resized()
 {
     const auto square = scopeSquare();
+
+    // The held trace was sized for the old square; there is no honest way to
+    // rescale a cloud of dots, so a resize drops it rather than smear it.
+    storedTrace = {};
 
     if (square.isEmpty())
     {
@@ -311,11 +338,34 @@ void StereoFieldView::paint (juce::Graphics& g)
 
     if (! square.isEmpty())
     {
+        if (storedTrace.isValid())
+        {
+            g.setOpacity (0.45f);
+            g.drawImageAt (storedTrace, square.getX(), square.getY());
+            g.setOpacity (1.0f);
+        }
+
         if (persistence.isValid())
+        {
+            // Opaque, as ever — except when a trace is held, when it eases
+            // back a touch so the ghost underneath keeps showing through
+            // rather than being paved over frame after frame.
+            g.setOpacity (storedTrace.isValid() ? 0.82f : 1.0f);
             g.drawImageAt (persistence, square.getX(), square.getY());
+            g.setOpacity (1.0f);
+        }
 
         drawGraticule (g, square);
         drawCorrelationStrip (g, correlationStrip());
+
+        if (storedTrace.isValid())
+        {
+            g.setColour (Theme::palette().boneDim);
+            g.setFont (Theme::mono (9.0f, true));
+            g.drawText (Theme::spaced ("STORED"),
+                        juce::Rectangle<int> (square.getX() + 4, square.getY() + 3, 70, 12),
+                        juce::Justification::centredLeft);
+        }
     }
 
     if (vuColumnVisible())

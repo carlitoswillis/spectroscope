@@ -4,6 +4,7 @@
 #include "../Source/dsp/LockFreeQueue.h"
 #include "../Source/dsp/AnalysisEngine.h"
 #include "../Source/dsp/StftAnalyzer.h"
+#include "../Source/dsp/LoudnessMeter.h"
 
 namespace
 {
@@ -512,10 +513,116 @@ public:
 };
 
 //==============================================================================
+class LoudnessMeterTests final : public juce::UnitTest
+{
+public:
+    LoudnessMeterTests() : UnitTest ("LoudnessMeter", "dsp") {}
+
+    /** Feeds a continuous stereo sine, hop by hop, with the same signal on
+        both channels.
+    */
+    static void feedSine (LoudnessMeter& meter, double sampleRate, int hopSize,
+                          double frequency, double amplitude, double seconds)
+    {
+        std::vector<float> hop (static_cast<size_t> (hopSize), 0.0f);
+
+        const auto numHops = static_cast<int> (std::ceil (seconds * sampleRate / hopSize));
+        double sampleIndex = 0.0;
+
+        for (int h = 0; h < numHops; ++h)
+        {
+            for (int i = 0; i < hopSize; ++i)
+                hop[static_cast<size_t> (i)] = static_cast<float> (
+                    amplitude * std::sin (juce::MathConstants<double>::twoPi
+                                          * frequency * (sampleIndex + i) / sampleRate));
+
+            sampleIndex += hopSize;
+            meter.processHop (hop.data(), hop.data(), hopSize);
+        }
+    }
+
+    void runTest() override
+    {
+        constexpr double sampleRate = 48000.0;
+        constexpr int hopSize = 256;
+
+        beginTest ("reports no data before any audio arrives");
+        {
+            LoudnessMeter meter;
+            meter.prepare (sampleRate);
+
+            expect (meter.getMomentaryLufs() <= -100.0f);
+            expect (meter.getShortTermLufs() <= -100.0f);
+            expect (meter.getIntegratedLufs() <= -100.0f);
+            expect (meter.getMaxTruePeakDb() <= -100.0f);
+        }
+
+        beginTest ("integrates a -18 dBFS 997 Hz stereo sine to -15 LUFS");
+        {
+            LoudnessMeter meter;
+            meter.prepare (sampleRate);
+
+            // -18 dBFS per-channel RMS (AES-17: a full-scale sine is 0 dBFS),
+            // so the amplitude is sqrt(2) * 10^(-18/20). BS.1770 sums the two
+            // channel powers, the K filter's lift at 997 Hz cancels against
+            // the -0.691 offset, and the tone is steady so the gates remove
+            // nothing: expected loudness is -18 + 10*log10(2) = -15.0 LUFS.
+            const auto amplitude = std::sqrt (2.0) * std::pow (10.0, -18.0 / 20.0);
+            feedSine (meter, sampleRate, hopSize, 997.0, amplitude, 5.0);
+
+            const auto integrated = meter.getIntegratedLufs();
+            expect (std::abs (integrated + 15.0f) < 0.1f,
+                    "integrated was " + juce::String (integrated) + " LUFS, expected -15.0");
+
+            // A steady tone should read the same on every window.
+            expect (std::abs (meter.getMomentaryLufs() + 15.0f) < 0.1f,
+                    "momentary was " + juce::String (meter.getMomentaryLufs()) + " LUFS");
+            expect (std::abs (meter.getShortTermLufs() + 15.0f) < 0.1f,
+                    "short-term was " + juce::String (meter.getShortTermLufs()) + " LUFS");
+            expect (meter.getLoudnessRange() < 0.5f,
+                    "a steady tone should have almost no loudness range");
+        }
+
+        beginTest ("reads a full-scale sine at 0 dBTP");
+        {
+            LoudnessMeter meter;
+            meter.prepare (sampleRate);
+
+            feedSine (meter, sampleRate, hopSize, 997.0, 1.0, 1.0);
+
+            const auto truePeak = meter.getMaxTruePeakDb();
+            expect (std::abs (truePeak) < 0.3f,
+                    "true peak was " + juce::String (truePeak) + " dBTP, expected ~0");
+        }
+
+        beginTest ("requestReset clears the running measurement");
+        {
+            LoudnessMeter meter;
+            meter.prepare (sampleRate);
+
+            feedSine (meter, sampleRate, hopSize, 997.0, 0.5, 1.0);
+            expect (meter.getMomentaryLufs() > -100.0f);
+            expect (meter.getMaxTruePeakDb() > -100.0f);
+
+            meter.requestReset();
+
+            // The reset is consumed at the next hop, not on the calling thread.
+            std::vector<float> silence (static_cast<size_t> (hopSize), 0.0f);
+            meter.processHop (silence.data(), silence.data(), hopSize);
+
+            expect (meter.getMomentaryLufs() <= -100.0f);
+            expect (meter.getIntegratedLufs() <= -100.0f);
+            expect (meter.getMaxTruePeakDb() <= -100.0f);
+        }
+    }
+};
+
+//==============================================================================
 static SampleRingBufferTests  sampleRingBufferTests;
 static LockFreeQueueTests     lockFreeQueueTests;
 static ColumnRingTests        columnRingTests;
 static StftAnalyzerTests      stftAnalyzerTests;
+static LoudnessMeterTests     loudnessMeterTests;
 static AnalysisEngineTests    analysisEngineTests;
 static AnalysisEngineIdleTests analysisEngineIdleTests;
 

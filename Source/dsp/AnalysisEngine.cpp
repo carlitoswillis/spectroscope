@@ -30,6 +30,7 @@ void AnalysisEngine::prepare (double sampleRate, int maximumBlockSize, int numCh
 
     stft.prepare (fftOrder, hopSize, sampleRate);
     sideStft.prepare (fftOrder, hopSize, sampleRate);
+    loudnessMeter.prepare (sampleRate);
     columnScratch.assign (static_cast<size_t> (stft.getNumBins()), StftAnalyzer::floorDb);
     sideColumnScratch.assign (static_cast<size_t> (sideStft.getNumBins()), StftAnalyzer::floorDb);
 
@@ -178,6 +179,10 @@ void AnalysisEngine::processPendingAudio()
 
         if (sideStft.processHop (side, sideColumnScratch.data()))
             sideSpectrumColumns.push (sideColumnScratch.data());
+
+        // Mono input feeds the same pointer twice: BS.1770 sums channel energy,
+        // and a dual-mono pair is the correct reading for a mono source.
+        loudnessMeter.processHop (left, right, hopSize);
 
         // Likewise for the vectorscope and oscilloscope: one pass over the hop,
         // one push into each view's queue.
