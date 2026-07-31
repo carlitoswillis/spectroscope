@@ -20,6 +20,12 @@ void CrtOverlay::resized()
     rebuild();
 }
 
+void CrtOverlay::themeChanged()
+{
+    rebuild();
+    repaint();
+}
+
 void CrtOverlay::rebuild()
 {
     const auto w = getWidth();
@@ -59,7 +65,7 @@ void CrtOverlay::rebuild()
     // A breath of amber in the corners, as though the phosphor coating carries
     // a little colour even where nothing is lit.
     juce::ColourGradient tint (juce::Colours::transparentBlack, centre,
-                               Theme::amber.withAlpha (cornerTintAlpha),
+                               Theme::palette().amber.withAlpha (cornerTintAlpha),
                                centre.translated (radius, 0.0f), true);
 
     tint.addColour (0.7, juce::Colours::transparentBlack);

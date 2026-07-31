@@ -45,6 +45,20 @@ namespace ColourMaps
         { 1.000f, 214, 255, 222 },
     }};
 
+    /** Ice-blue phosphor — deep indigo through cyan to white, the cold
+        institutional monitor.
+    */
+    inline constexpr std::array<Stop, 7> bluePhosphor
+    {{
+        { 0.000f,   4,   6,  10 },
+        { 0.180f,  12,  28,  56 },
+        { 0.380f,  18,  62, 104 },
+        { 0.580f,  28, 118, 164 },
+        { 0.760f,  70, 182, 220 },
+        { 0.900f, 156, 228, 248 },
+        { 1.000f, 232, 250, 255 },
+    }};
+
     inline constexpr std::array<Stop, 9> magma
     {{
         { 0.000f,   0,   0,   4 },

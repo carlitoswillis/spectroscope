@@ -46,6 +46,7 @@ target_sources(Spectroscope PRIVATE
     Source/dsp/StftAnalyzer.cpp
     Source/gui/WaveformView.cpp
     Source/gui/SpectrogramView.cpp
+    Source/gui/SpectrumView.cpp
     Source/gui/CrtOverlay.cpp)
 
 target_compile_definitions(Spectroscope PUBLIC
@@ -115,6 +116,7 @@ if(SPECTROSCOPE_BUILD_PREVIEW)
         Source/dsp/StftAnalyzer.cpp
         Source/gui/WaveformView.cpp
         Source/gui/SpectrogramView.cpp
+        Source/gui/SpectrumView.cpp
         Source/gui/CrtOverlay.cpp)
 
     target_compile_definitions(RenderPreview PRIVATE

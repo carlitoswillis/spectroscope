@@ -21,6 +21,11 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    /** The corner tint carries the palette's phosphor colour, so a livery
+        change means baking the overlay again.
+    */
+    void themeChanged();
+
 private:
     void rebuild();
 

@@ -48,11 +48,23 @@ public:
 
     AnalysisEngine& getAnalysisEngine() noexcept   { return analysisEngine; }
 
+    /** Display settings live on the processor so they survive the editor being
+        closed and reopened, and travel with the session via state.
+    */
+    int getThemeIndex() const noexcept       { return themeIndex.load (std::memory_order_relaxed); }
+    void setThemeIndex (int index) noexcept  { themeIndex.store (index, std::memory_order_relaxed); }
+
+    bool getSpectrumMode() const noexcept    { return spectrumMode.load (std::memory_order_relaxed); }
+    void setSpectrumMode (bool on) noexcept  { spectrumMode.store (on, std::memory_order_relaxed); }
+
 private:
     AnalysisEngine analysisEngine;
 
     std::atomic<double> currentSampleRate { 0.0 };
     std::atomic<int>    currentBlockSize  { 0 };
+
+    std::atomic<int>  themeIndex   { 0 };
+    std::atomic<bool> spectrumMode { false };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SpectroscopeAudioProcessor)
 };

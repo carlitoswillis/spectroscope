@@ -57,13 +57,26 @@ juce::AudioProcessorEditor* SpectroscopeAudioProcessor::createEditor()
     return new SpectroscopeAudioProcessorEditor (*this);
 }
 
-void SpectroscopeAudioProcessor::getStateInformation (juce::MemoryBlock&)
+void SpectroscopeAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // No parameters yet. Display settings land here in Phase 6.
+    // No audio parameters — the state is purely how the display is dressed.
+    juce::XmlElement state ("SpectroscopeState");
+    state.setAttribute ("theme", getThemeIndex());
+    state.setAttribute ("spectrum", getSpectrumMode());
+
+    copyXmlToBinary (state, destData);
 }
 
-void SpectroscopeAudioProcessor::setStateInformation (const void*, int)
+void SpectroscopeAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    if (const auto state = getXmlFromBinary (data, sizeInBytes))
+    {
+        if (state->hasTagName ("SpectroscopeState"))
+        {
+            setThemeIndex (state->getIntAttribute ("theme", 0));
+            setSpectrumMode (state->getBoolAttribute ("spectrum", false));
+        }
+    }
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

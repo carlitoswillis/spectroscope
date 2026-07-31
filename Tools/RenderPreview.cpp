@@ -8,7 +8,7 @@
     This exists so the visual design can be reviewed without a Mac and without
     a DAW — the picture it produces is the same one the plugin draws.
 
-        RenderPreview <output.png> [width] [height]
+        RenderPreview <output.png> [width] [height] [theme 0-3] [spectrum 0|1]
 */
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -72,11 +72,15 @@ int main (int argc, char** argv)
 
     const auto width  = argc > 2 ? juce::String (argv[2]).getIntValue() : 940;
     const auto height = argc > 3 ? juce::String (argv[3]).getIntValue() : 600;
+    const auto theme  = argc > 4 ? juce::String (argv[4]).getIntValue() : 0;
+    const auto spectrum = argc > 5 && juce::String (argv[5]).getIntValue() != 0;
 
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 512;
 
     SpectroscopeAudioProcessor processor;
+    processor.setThemeIndex (theme);
+    processor.setSpectrumMode (spectrum);
     processor.setPlayConfigDetails (2, 2, sampleRate, blockSize);
     processor.prepareToPlay (sampleRate, blockSize);
 

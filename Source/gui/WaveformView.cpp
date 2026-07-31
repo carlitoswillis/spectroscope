@@ -80,7 +80,7 @@ void WaveformView::drawGraticule (juce::Graphics& g)
     // graticule rather than a chart grid.
     for (const auto fraction : { 0.5f, 1.0f })
     {
-        g.setColour (Theme::grid.withAlpha (fraction > 0.9f ? 0.55f : 0.35f));
+        g.setColour (Theme::palette().grid.withAlpha (fraction > 0.9f ? 0.55f : 0.35f));
 
         for (const auto sign : { -1.0f, 1.0f })
         {
@@ -89,7 +89,7 @@ void WaveformView::drawGraticule (juce::Graphics& g)
         }
     }
 
-    g.setColour (Theme::gridBright.withAlpha (0.7f));
+    g.setColour (Theme::palette().gridBright.withAlpha (0.7f));
     g.drawHorizontalLine (juce::roundToInt (centreY), bounds.getX(), bounds.getRight());
 
     // Time ticks every second, counted back from the right-hand edge.
@@ -99,7 +99,7 @@ void WaveformView::drawGraticule (juce::Graphics& g)
     {
         const auto columnsPerSecond = 1.0 / secondsPerColumn;
 
-        g.setColour (Theme::grid.withAlpha (0.4f));
+        g.setColour (Theme::palette().grid.withAlpha (0.4f));
 
         for (int second = 1;; ++second)
         {
@@ -117,7 +117,7 @@ void WaveformView::paint (juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
 
-    g.fillAll (Theme::screenBlack);
+    g.fillAll (Theme::palette().screenBlack);
     drawGraticule (g);
 
     const auto centreY = bounds.getCentreY();
@@ -133,64 +133,93 @@ void WaveformView::paint (juce::Graphics& g)
         return centreY - juce::jlimit (-1.0f, 1.0f, value) * halfHeight;
     };
 
-    // Translucent body. Filling peak-to-peak at full strength turns any
-    // continuous material into a solid slab — the graticule disappears behind
-    // it and the shape stops reading. Keeping the body dim leaves the edges to
-    // carry the information.
-    g.setColour (Theme::amber.withAlpha (0.22f));
+    // Collect the visible envelope, then smooth it over a few columns. At one
+    // analysis hop per pixel, dense material flips between peak and silence
+    // every few pixels and the raw trace turns into a comb; a short moving
+    // average keeps transients while letting the outline flow like a drawn
+    // wave instead of bristling.
+    struct Sample { float x, maxValue, minValue, rms; };
+    std::vector<Sample> samples;
+    samples.reserve (static_cast<size_t> (width));
 
     for (int x = 0; x < width; ++x)
-    {
         if (const auto* point = pointAtAge (width - 1 - x))
-        {
-            const auto top = toY (point->maxValue);
-            const auto bottom = toY (point->minValue);
+            samples.push_back ({ static_cast<float> (x), point->maxValue, point->minValue, point->rms });
 
-            g.fillRect (static_cast<float> (x), top, 1.0f, juce::jmax (1.0f, bottom - top));
+    if (samples.empty())
+        return;
+
+    const auto count = static_cast<int> (samples.size());
+    constexpr int smoothRadius = 2;
+
+    std::vector<Sample> smoothed (samples);
+
+    for (int i = 0; i < count; ++i)
+    {
+        auto maxSum = 0.0f, minSum = 0.0f, rmsSum = 0.0f;
+        auto n = 0;
+
+        for (int j = juce::jmax (0, i - smoothRadius); j <= juce::jmin (count - 1, i + smoothRadius); ++j)
+        {
+            maxSum += samples[static_cast<size_t> (j)].maxValue;
+            minSum += samples[static_cast<size_t> (j)].minValue;
+            rmsSum += samples[static_cast<size_t> (j)].rms;
+            ++n;
+        }
+
+        smoothed[static_cast<size_t> (i)].maxValue = maxSum / static_cast<float> (n);
+        smoothed[static_cast<size_t> (i)].minValue = minSum / static_cast<float> (n);
+        smoothed[static_cast<size_t> (i)].rms      = rmsSum / static_cast<float> (n);
+    }
+
+    // The envelope as one closed shape: along the maxima left to right, back
+    // along the minima. A stroked path with rounded joins reads as a drawn
+    // trace; per-pixel rectangles read as a comb.
+    juce::Path envelope, rmsBand;
+
+    for (int i = 0; i < count; ++i)
+    {
+        const auto& s = smoothed[static_cast<size_t> (i)];
+
+        if (i == 0)
+        {
+            envelope.startNewSubPath (s.x, toY (s.maxValue));
+            rmsBand.startNewSubPath (s.x, toY (s.rms));
+        }
+        else
+        {
+            envelope.lineTo (s.x, toY (s.maxValue));
+            rmsBand.lineTo (s.x, toY (s.rms));
         }
     }
 
-    // RMS sits inside the peaks, a little hotter — the region the signal
-    // actually spends its time in.
-    g.setColour (Theme::amber.withAlpha (0.30f));
-
-    for (int x = 0; x < width; ++x)
+    for (int i = count - 1; i >= 0; --i)
     {
-        if (const auto* point = pointAtAge (width - 1 - x))
-        {
-            const auto top = toY (point->rms);
-            const auto bottom = toY (-point->rms);
+        const auto& s = smoothed[static_cast<size_t> (i)];
 
-            g.fillRect (static_cast<float> (x), top, 1.0f, juce::jmax (1.0f, bottom - top));
-        }
+        envelope.lineTo (s.x, toY (s.minValue));
+        rmsBand.lineTo (s.x, toY (-s.rms));
     }
 
-    // The envelope edges are the trace. Drawn twice — a wide dim pass then a
-    // narrow bright one — so the line blooms into the glass the way a lit
-    // phosphor line does, instead of reading as a flat vector.
-    struct EdgePass { float thickness; float alpha; juce::Colour colour; };
+    envelope.closeSubPath();
+    rmsBand.closeSubPath();
 
-    const EdgePass edgePasses[] =
-    {
-        { 3.0f, 0.20f, Theme::amber },
-        { 1.0f, 0.95f, Theme::amberBright },
-    };
+    // Translucent body, hotter RMS core: the region the signal actually lives
+    // in glows through the peaks without turning the display into a slab.
+    g.setColour (Theme::palette().amber.withAlpha (0.16f));
+    g.fillPath (envelope);
 
-    for (const auto& pass : edgePasses)
-    {
-        g.setColour (pass.colour.withAlpha (pass.alpha));
-        const auto half = pass.thickness * 0.5f;
+    g.setColour (Theme::palette().amber.withAlpha (0.34f));
+    g.fillPath (rmsBand);
 
-        for (int x = 0; x < width; ++x)
-        {
-            if (const auto* point = pointAtAge (width - 1 - x))
-            {
-                const auto top = toY (point->maxValue);
-                const auto bottom = toY (point->minValue);
+    // The envelope edge is the trace. A wide dim pass then a narrow bright one,
+    // so the line blooms into the glass the way a lit phosphor line does.
+    const juce::PathStrokeType glowStroke (2.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
+    const juce::PathStrokeType lineStroke (1.1f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
 
-                g.fillRect (static_cast<float> (x), top - half, 1.0f, pass.thickness);
-                g.fillRect (static_cast<float> (x), bottom - half, 1.0f, pass.thickness);
-            }
-        }
-    }
+    g.setColour (Theme::palette().amber.withAlpha (0.22f));
+    g.strokePath (envelope, glowStroke);
+
+    g.setColour (Theme::palette().amberBright.withAlpha (0.85f));
+    g.strokePath (envelope, lineStroke);
 }
