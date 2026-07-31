@@ -3,7 +3,6 @@
 namespace
 {
     const juce::Colour background   { 0xff101014 };
-    const juce::Colour panelFill    { 0xff17171d };
     const juce::Colour panelOutline { 0xff2a2a34 };
     const juce::Colour textDim      { 0xff6e6e7d };
     const juce::Colour textBright   { 0xffd6d6e0 };
@@ -18,9 +17,11 @@ namespace
 SpectroscopeAudioProcessorEditor::SpectroscopeAudioProcessorEditor (SpectroscopeAudioProcessor& p)
     : AudioProcessorEditor (&p),
       processor (p),
-      waveformView (p.getAnalysisEngine())
+      waveformView (p.getAnalysisEngine()),
+      spectrogramView (p.getAnalysisEngine())
 {
     addAndMakeVisible (waveformView);
+    addAndMakeVisible (spectrogramView);
 
     setResizable (true, true);
     setResizeLimits (480, 320, 4096, 2400);
@@ -58,27 +59,12 @@ void SpectroscopeAudioProcessorEditor::resized()
     headerArea   = area.removeFromTop (headerHeight);
     timeAxisArea = area.removeFromBottom (timeAxisHeight);
 
-    // Waveform takes the top third, spectrogram the rest. Both are inset by the
-    // same amount so their time axes line up pixel for pixel.
+    // Waveform takes the top third, spectrogram the rest. Both keep the same
+    // left and right edges so their time axes line up pixel for pixel.
     area.removeFromTop (padding / 2);
     waveformView.setBounds (area.removeFromTop (juce::roundToInt (area.getHeight() * 0.32f)));
     area.removeFromTop (padding / 2);
-    spectrogramArea = area;
-}
-
-void SpectroscopeAudioProcessorEditor::paintPlaceholder (juce::Graphics& g,
-                                                         juce::Rectangle<int> area,
-                                                         const juce::String& label)
-{
-    g.setColour (panelFill);
-    g.fillRoundedRectangle (area.toFloat(), 4.0f);
-
-    g.setColour (panelOutline);
-    g.drawRoundedRectangle (area.toFloat().reduced (0.5f), 4.0f, 1.0f);
-
-    g.setColour (textDim);
-    g.setFont (juce::FontOptions (13.0f));
-    g.drawText (label, area, juce::Justification::centred);
+    spectrogramView.setBounds (area);
 }
 
 void SpectroscopeAudioProcessorEditor::paint (juce::Graphics& g)
@@ -97,14 +83,20 @@ void SpectroscopeAudioProcessorEditor::paint (juce::Graphics& g)
     g.drawText (statusText, header, juce::Justification::centredRight);
 
     g.setColour (panelOutline);
-    g.drawRoundedRectangle (waveformView.getBounds().toFloat().reduced (0.5f), 4.0f, 1.0f);
-
-    paintPlaceholder (g, spectrogramArea, "spectrogram");
+    g.drawRect (waveformView.getBounds().expanded (1), 1);
+    g.drawRect (spectrogramView.getBounds().expanded (1), 1);
 
     const auto span = waveformView.getVisibleTimeSpan();
+    const auto nyquist = processor.getCurrentSampleRate() * 0.5;
 
     g.setColour (textDim);
     g.setFont (juce::FontOptions (11.0f));
+
+    auto axis = timeAxisArea;
+
+    g.drawText (nyquist > 0.0 ? "0 - " + juce::String (nyquist / 1000.0, 1) + " kHz" : juce::String(),
+                axis.removeFromLeft (110), juce::Justification::centredLeft);
+
     g.drawText (span > 0.0 ? juce::String (span, 2) + " s visible" : juce::String ("shared time axis"),
-                timeAxisArea, juce::Justification::centred);
+                axis, juce::Justification::centred);
 }

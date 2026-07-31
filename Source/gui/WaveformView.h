@@ -19,7 +19,7 @@ class WaveformView final : public juce::Component,
 {
 public:
     explicit WaveformView (AnalysisEngine&);
-    ~WaveformView() override = default;
+    ~WaveformView() override;
 
     void paint (juce::Graphics&) override;
 

@@ -43,7 +43,9 @@ target_sources(Spectroscope PRIVATE
     Source/PluginEditor.cpp
     Source/dsp/SampleRingBuffer.cpp
     Source/dsp/AnalysisEngine.cpp
-    Source/gui/WaveformView.cpp)
+    Source/dsp/StftAnalyzer.cpp
+    Source/gui/WaveformView.cpp
+    Source/gui/SpectrogramView.cpp)
 
 target_compile_definitions(Spectroscope PUBLIC
     JUCE_WEB_BROWSER=0
@@ -72,7 +74,8 @@ juce_add_console_app(SpectroscopeTests PRODUCT_NAME "SpectroscopeTests")
 target_sources(SpectroscopeTests PRIVATE
     Tests/DspTests.cpp
     Source/dsp/SampleRingBuffer.cpp
-    Source/dsp/AnalysisEngine.cpp)
+    Source/dsp/AnalysisEngine.cpp
+    Source/dsp/StftAnalyzer.cpp)
 
 target_compile_definitions(SpectroscopeTests PRIVATE
     JUCE_WEB_BROWSER=0
@@ -83,6 +86,7 @@ target_compile_definitions(SpectroscopeTests PRIVATE
 target_link_libraries(SpectroscopeTests
     PRIVATE
         juce::juce_audio_basics
+        juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)

@@ -13,11 +13,18 @@ WaveformView::WaveformView (AnalysisEngine& e)
 {
     setOpaque (true);
 
+    engine.addConsumer();
+
     // Anything pending was captured before this view existed; rendering it would
     // paint a backlog of stale audio on open.
     engine.getEnvelopeQueue().discardPending();
 
     startTimerHz (60);
+}
+
+WaveformView::~WaveformView()
+{
+    engine.removeConsumer();
 }
 
 const EnvelopePoint* WaveformView::pointAtAge (int age) const noexcept

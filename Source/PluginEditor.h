@@ -3,10 +3,13 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
 #include "gui/WaveformView.h"
+#include "gui/SpectrogramView.h"
 
 /**
     Waveform above, spectrogram below, both sharing one horizontal time axis.
-    The spectrogram pane is still a placeholder until Phase 3.
+
+    Both views scroll on the same clock — one column per analysis hop — so a
+    transient lines up vertically across the two.
 */
 class SpectroscopeAudioProcessorEditor final : public juce::AudioProcessorEditor,
                                                private juce::Timer
@@ -20,13 +23,12 @@ public:
 
 private:
     void timerCallback() override;
-    void paintPlaceholder (juce::Graphics&, juce::Rectangle<int> area, const juce::String& label);
 
     SpectroscopeAudioProcessor& processor;
     WaveformView waveformView;
+    SpectrogramView spectrogramView;
 
     juce::Rectangle<int> headerArea;
-    juce::Rectangle<int> spectrogramArea;
     juce::Rectangle<int> timeAxisArea;
 
     juce::String statusText { "no audio yet" };

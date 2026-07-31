@@ -27,9 +27,19 @@ void AnalysisEngine::prepare (double sampleRate, int maximumBlockSize, int numCh
     hopBuffer.setSize (channelsToStore, hopSize, false, true, false);
     monoBuffer.setSize (1, hopSize, false, true, false);
 
+    stft.prepare (fftOrder, hopSize, sampleRate);
+    columnScratch.assign (static_cast<size_t> (stft.getNumBins()), StftAnalyzer::floorDb);
+
     // Roughly ten seconds of points: far more than any window will display, so
     // the UI only ever drops frames if it stops draining entirely.
-    envelopeQueue.prepare (juce::roundToInt (sampleRate * 10.0 / hopSize));
+    const auto pointsForTenSeconds = juce::roundToInt (sampleRate * 10.0 / hopSize);
+    envelopeQueue.prepare (pointsForTenSeconds);
+
+    // Columns are much larger, so a shorter backlog. Two seconds is still far
+    // more than one frame's worth of catching up.
+    spectrumColumns.prepare (stft.getNumBins(), juce::roundToInt (sampleRate * 2.0 / hopSize));
+
+    wasActive = false;
 
     startThread (juce::Thread::Priority::high);
 }
@@ -41,15 +51,53 @@ void AnalysisEngine::release()
     currentSampleRate = 0.0;
 }
 
+void AnalysisEngine::addConsumer() noexcept
+{
+    consumerCount.fetch_add (1, std::memory_order_relaxed);
+}
+
+void AnalysisEngine::removeConsumer() noexcept
+{
+    consumerCount.fetch_sub (1, std::memory_order_relaxed);
+}
+
 void AnalysisEngine::run()
 {
     // A hop is 5.3 ms at 48 kHz, so a 1 ms poll keeps latency well under one
     // frame without the cost of signalling from the audio callback.
     while (! threadShouldExit())
     {
-        processPendingAudio();
+        const auto active = hasConsumers();
+
+        if (active)
+        {
+            // Coming back from idle, the sliding window holds audio from before
+            // the gap. Starting clean avoids a smear across the discontinuity.
+            if (! wasActive)
+            {
+                stft.reset();
+                discardPendingAudio();
+            }
+
+            processPendingAudio();
+        }
+        else
+        {
+            // Nothing is drawing, so skip the FFT — but keep draining, or the
+            // audio thread starts counting drops against a buffer nobody reads.
+            discardPendingAudio();
+        }
+
+        wasActive = active;
         wait (1);
     }
+}
+
+void AnalysisEngine::discardPendingAudio()
+{
+    while (ringBuffer.getNumReady() >= hopSize)
+        if (ringBuffer.read (hopBuffer, hopSize) != hopSize)
+            break;
 }
 
 void AnalysisEngine::processPendingAudio()
@@ -59,8 +107,8 @@ void AnalysisEngine::processPendingAudio()
         if (ringBuffer.read (hopBuffer, hopSize) != hopSize)
             break;
 
-        // Sum to mono for the waveform. Per-channel and mid/side views come in
-        // Phase 6; the ring buffer already carries both channels for that.
+        // Sum to mono. Per-channel and mid/side views come in Phase 6; the ring
+        // buffer already carries both channels for that.
         monoBuffer.clear();
         const auto numChannels = hopBuffer.getNumChannels();
 
@@ -77,5 +125,8 @@ void AnalysisEngine::processPendingAudio()
 
         // A full queue means no view is draining it. Dropping is correct here.
         envelopeQueue.push (point);
+
+        if (stft.processHop (mono, columnScratch.data()))
+            spectrumColumns.push (columnScratch.data());
     }
 }

@@ -8,14 +8,17 @@ latency, so hosts add nothing to the signal path.
 
 ## What you get today
 
-The waveform view is live. **The spectrogram pane is still a placeholder** until Phase 3 — you'll
-see a labelled empty panel where it will go.
+Both views are live: a scrolling min/max waveform above a scrolling spectrogram, sharing one time
+axis. A 2048-point window advanced 256 samples at a time gives ~23 Hz bins updating every 5.3 ms.
+
+The frequency axis is still **linear** and drawing is still on the **CPU** — Phase 4 moves it to
+the GPU, Phase 6 makes the axis logarithmic.
 
 | Phase | What it adds | State |
 |---|---|---|
 | 1 | CMake + JUCE, AU/VST3/Standalone targets, pass-through processor | **done** |
 | 2 | Lock-free capture, waveform view | **done** |
-| 3 | STFT spectrogram (CPU) | planned |
+| 3 | STFT spectrogram (CPU) | **done** |
 | 4 | OpenGL ring-texture renderer | planned |
 | 5 | Standalone device picker + Apollo routing | planned |
 | 6 | Log frequency axis, colour maps, cursor readout | planned |
@@ -127,10 +130,14 @@ latency.
 
 ## Known limitations
 
-- The spectrogram pane is a placeholder until Phase 3.
-- Each loaded instance runs its analysis thread whenever the plugin is instantiated, not only when
-  its window is open. Negligible for a handful of instances; worth knowing if you park dozens.
+- The frequency axis is linear, so the bass end is cramped. Phase 6 fixes this properly, with a
+  second longer FFT for the low band rather than just stretching the same bins.
+- Drawing is on the CPU until Phase 4, which is why the spectrogram repaints its whole image each
+  frame. Fine at normal window sizes; the GPU path removes the ceiling.
 - Builds are unsigned and un-notarised, hence the quarantine step.
+
+Closing a plugin window costs nothing: with no view attached the analysis thread keeps draining the
+ring buffer — so the audio thread never sees a full buffer — but skips the FFT entirely.
 
 ---
 
@@ -144,10 +151,15 @@ pluginval --strictness-level 8 build/Spectroscope_artefacts/RelWithDebInfo/VST3/
 
 CI runs all three on every push, plus a Linux compile check.
 
-The DSP tests cover the parts that can be verified without a display or an audio device: the ring
-buffer's ordering across wraps and its drop-rather-than-block behaviour, the queue's ordering and
-fullness handling, and the analysis chain end to end — a known 1 kHz sine in, correct peak and RMS
-out.
+The DSP tests cover the parts that can be verified without a display or an audio device:
+
+- ring buffer ordering across wraps, and its drop-rather-than-block behaviour under a stalled
+  consumer
+- queue and column-ring ordering and fullness handling
+- STFT correctness — a bin-centred tone lands in the exact bin at the exact level, full scale reads
+  0 dB, two tones resolve with a clear gap between them, silence reads the floor
+- the analysis chain end to end, including that an idle engine drains without dropping and produces
+  nothing until a view attaches
 
 ## Design notes
 
