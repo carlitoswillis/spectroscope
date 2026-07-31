@@ -54,14 +54,28 @@ jobs:
             --timeout-ms 300000 \
             --validate "build/Spectroscope_artefacts/RelWithDebInfo/VST3/Spectroscope.vst3"
 
+      # Uploading bundles directly does not work: actions/upload-artifact zips
+      # them, and that zip drops the executable permission bit and breaks the
+      # code signature. macOS then reports the result as "damaged and can't be
+      # opened". Ad-hoc signing and wrapping in a tarball preserves both.
+      - name: Package
+        run: |
+          cd build/Spectroscope_artefacts/RelWithDebInfo
+
+          for bundle in AU/Spectroscope.component \
+                        VST3/Spectroscope.vst3 \
+                        Standalone/Spectroscope.app; do
+            codesign --force --deep --sign - "$bundle"
+            codesign --verify --deep --strict "$bundle"
+          done
+
+          tar czf "$GITHUB_WORKSPACE/spectroscope-macos.tar.gz" AU VST3 Standalone
+
       - name: Upload artefacts
         uses: actions/upload-artifact@v4
         with:
           name: spectroscope-macos
-          path: |
-            build/Spectroscope_artefacts/RelWithDebInfo/AU/Spectroscope.component
-            build/Spectroscope_artefacts/RelWithDebInfo/VST3/Spectroscope.vst3
-            build/Spectroscope_artefacts/RelWithDebInfo/Standalone/Spectroscope.app
+          path: spectroscope-macos.tar.gz
 
   # Fast compile check. Catches the class of error that would otherwise only
   # show up after a five-minute macOS build.

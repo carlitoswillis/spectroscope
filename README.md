@@ -31,28 +31,37 @@ the GPU, Phase 6 makes the axis logarithmic.
 
 1. Go to the repo's [**Actions** tab](../../actions), open the most recent green run on your
    branch, and download the **`spectroscope-macos`** artefact.
-2. Unzip it. You get three things: `Spectroscope.component` (AU), `Spectroscope.vst3`, and
-   `Spectroscope.app`.
-3. Move them into place:
+2. Unzip GitHub's wrapper to get `spectroscope-macos.tar.gz` — **don't unpack the tarball by
+   double-clicking**, the script below does it correctly.
+3. Run the installer:
 
    ```bash
-   mv Spectroscope.component ~/Library/Audio/Plug-Ins/Components/
-   mv Spectroscope.vst3      ~/Library/Audio/Plug-Ins/VST3/
-   mv Spectroscope.app       /Applications/
+   ./scripts/install-macos.sh ~/Downloads/spectroscope-macos.tar.gz
    ```
 
-4. **Clear the quarantine flag.** These builds aren't signed or notarised, so macOS will refuse to
-   load them straight out of a downloaded zip — the AU will silently fail to appear in Live, and
-   the app will claim it's damaged. This is the step people miss:
-
-   ```bash
-   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Spectroscope.component
-   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Spectroscope.vst3
-   xattr -dr com.apple.quarantine /Applications/Spectroscope.app
-   ```
+It extracts the tarball, strips the quarantine flag, restores executable permissions, re-applies an
+ad-hoc signature, installs all three bundles, and runs `auval` to confirm the AU is sound.
 
 The builds are universal (arm64 + x86_64), so they load whether Live is running natively on Apple
 Silicon or under Rosetta.
+
+#### Why "Spectroscope is damaged and can't be opened"
+
+Two separate things bite downloaded, unsigned bundles on macOS:
+
+- **Quarantine.** Gatekeeper flags anything a browser wrote. An AU with this flag silently never
+  appears in Live; an app claims to be damaged.
+- **A broken bundle.** A plain zip round-trip drops the executable permission bit and invalidates
+  the code signature, and macOS reads the result as corrupt. This is why the artefact is a tarball
+  now — `tar` preserves permissions and symlinks, `zip` does not.
+
+To fix a bundle by hand:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Spectroscope.app
+chmod +x /Applications/Spectroscope.app/Contents/MacOS/Spectroscope
+codesign --force --deep --sign - /Applications/Spectroscope.app
+```
 
 ### Option B — build it yourself
 
