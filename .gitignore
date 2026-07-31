@@ -1,5 +1,9 @@
 build/
 cmake-build-*/
+
+# Local working artifacts: rendered previews and downloaded CI builds.
+previews/
+spectroscope-macos/
 .cache/
 .DS_Store
 *.user
