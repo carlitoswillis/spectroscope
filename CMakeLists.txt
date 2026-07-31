@@ -20,6 +20,8 @@ FetchContent_Declare(JUCE
 FetchContent_MakeAvailable(JUCE)
 
 juce_add_plugin(Spectroscope
+    ICON_BIG                  "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
+    ICON_SMALL                "${CMAKE_CURRENT_SOURCE_DIR}/Assets/icon.png"
     COMPANY_NAME              "carlitoswillis"
     BUNDLE_ID                 "com.carlitoswillis.spectroscope"
     PLUGIN_MANUFACTURER_CODE  Cwil
