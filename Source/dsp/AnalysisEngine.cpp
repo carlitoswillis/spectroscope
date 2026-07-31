@@ -123,6 +123,12 @@ void AnalysisEngine::processPendingAudio()
         point.maxValue = range.getEnd();
         point.rms      = monoBuffer.getRMSLevel (0, 0, hopSize);
 
+        // Decaying peak for the signal lamp: rises instantly, falls over about
+        // half a second, so a lamp driven from it doesn't flicker on transients.
+        const auto hopPeak = juce::jmax (point.maxValue, -point.minValue);
+        const auto decayed = recentPeak.load (std::memory_order_relaxed) * 0.99f;
+        recentPeak.store (juce::jmax (decayed, hopPeak), std::memory_order_relaxed);
+
         // A full queue means no view is draining it. Dropping is correct here.
         envelopeQueue.push (point);
 

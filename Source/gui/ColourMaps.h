@@ -4,15 +4,46 @@
 #include <array>
 
 /**
-    Perceptually-ordered colour maps for the spectrogram.
+    Colour maps for the spectrogram.
 
-    Magma is the default because it's monotonic in lightness — level reads
-    correctly whatever the hue, which a rainbow map can't claim, and it stays
-    legible against a dark UI.
+    All of these are monotonic in lightness, so level reads correctly whatever
+    the hue — a rainbow map can't claim that, which is why analysers that use
+    one are so hard to read quantitatively.
+
+    Convenient coincidence: an amber phosphor ramp is *naturally* monotonic in
+    lightness, because a real CRT's brightness and colour rise together as the
+    beam drives harder. The period-correct look and the perceptually correct
+    look are the same thing here.
 */
 namespace ColourMaps
 {
     struct Stop { float position; juce::uint8 r, g, b; };
+
+    /** Default. Cold black through rust and orange to white-hot, the way an
+        amber tube actually behaves when you overdrive it.
+    */
+    inline constexpr std::array<Stop, 8> amberPhosphor
+    {{
+        { 0.000f,   6,   4,   4 },
+        { 0.150f,  38,  14,  12 },
+        { 0.300f,  84,  26,  14 },
+        { 0.450f, 140,  46,  12 },
+        { 0.600f, 196,  82,  14 },
+        { 0.750f, 238, 133,  26 },
+        { 0.880f, 252, 190,  92 },
+        { 1.000f, 255, 244, 214 },
+    }};
+
+    /** P1 phosphor — the Nostromo green. */
+    inline constexpr std::array<Stop, 6> greenPhosphor
+    {{
+        { 0.000f,   4,   6,   5 },
+        { 0.200f,  10,  40,  26 },
+        { 0.400f,  16,  80,  46 },
+        { 0.600f,  30, 140,  74 },
+        { 0.800f,  86, 206, 120 },
+        { 1.000f, 214, 255, 222 },
+    }};
 
     inline constexpr std::array<Stop, 9> magma
     {{

@@ -45,7 +45,8 @@ target_sources(Spectroscope PRIVATE
     Source/dsp/AnalysisEngine.cpp
     Source/dsp/StftAnalyzer.cpp
     Source/gui/WaveformView.cpp
-    Source/gui/SpectrogramView.cpp)
+    Source/gui/SpectrogramView.cpp
+    Source/gui/CrtOverlay.cpp)
 
 target_compile_definitions(Spectroscope PUBLIC
     JUCE_WEB_BROWSER=0
@@ -92,3 +93,41 @@ target_link_libraries(SpectroscopeTests
         juce::juce_recommended_warning_flags)
 
 add_test(NAME dsp COMMAND SpectroscopeTests)
+
+#==============================================================================
+# Headless preview renderer. Paints the real editor into a PNG with synthetic
+# audio driven through it, so the visual design can be reviewed without a DAW
+# — or without a Mac. Off by default since it is a development tool.
+option(SPECTROSCOPE_BUILD_PREVIEW "Build the headless preview renderer" OFF)
+
+if(SPECTROSCOPE_BUILD_PREVIEW)
+    juce_add_console_app(RenderPreview PRODUCT_NAME "RenderPreview")
+
+    # Compiles the sources directly rather than linking the plugin's shared
+    # code, so the whole target agrees on JUCE_MODAL_LOOPS_PERMITTED — the
+    # preview needs to pump the message loop by hand to let view timers run.
+    target_sources(RenderPreview PRIVATE
+        Tools/RenderPreview.cpp
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp
+        Source/dsp/SampleRingBuffer.cpp
+        Source/dsp/AnalysisEngine.cpp
+        Source/dsp/StftAnalyzer.cpp
+        Source/gui/WaveformView.cpp
+        Source/gui/SpectrogramView.cpp
+        Source/gui/CrtOverlay.cpp)
+
+    target_compile_definitions(RenderPreview PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_MODAL_LOOPS_PERMITTED=1
+        JUCE_STANDALONE_APPLICATION=1
+        JucePlugin_Name="Spectroscope")
+
+    target_link_libraries(RenderPreview
+        PRIVATE
+            juce::juce_audio_utils
+            juce::juce_dsp
+        PUBLIC
+            juce::juce_recommended_config_flags)
+endif()

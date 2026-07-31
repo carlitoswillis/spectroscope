@@ -161,6 +161,32 @@ The DSP tests cover the parts that can be verified without a display or an audio
 - the analysis chain end to end, including that an idle engine drains without dropping and produces
   nothing until a view attaches
 
+## Look
+
+Cassette futurism — the future as imagined by people with CRTs and beige plastic. Amber phosphor
+on a warm chassis, institutional monospace, bezelled screens with machined corner brackets,
+indicator lamps, scanlines and a vignette over the glass.
+
+Every colour in `Source/gui/Theme.h` is warm-shifted; there is no pure grey and no pure black
+anywhere, which is what makes it read as a photographed screen rather than as dark mode.
+
+The spectrogram's amber ramp is period-correct *and* perceptually correct at the same time — a real
+tube's brightness and colour rise together as the beam drives harder, so an amber phosphor ramp is
+naturally monotonic in lightness. A green P1 "Nostromo" ramp and a magma ramp are also in
+`ColourMaps.h`.
+
+### Previewing without a DAW
+
+`Tools/RenderPreview.cpp` builds the real editor, drives synthetic audio through the real
+processor, pumps the message loop so the view timers fill with genuine analysis data, and paints
+the result to a PNG. No display server, no Mac, no host required.
+
+```bash
+cmake -B build -G Ninja -DSPECTROSCOPE_BUILD_PREVIEW=ON
+cmake --build build --target RenderPreview
+./build/RenderPreview_artefacts/*/RenderPreview preview.png 940 600
+```
+
 ## Design notes
 
 **Threading.** Three stages, two lock-free hops, nothing that allocates or locks on the audio

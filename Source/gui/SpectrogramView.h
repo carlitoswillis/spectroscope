@@ -35,6 +35,7 @@ private:
     void rebuildRowMapping();
     void renderColumnIntoImage (const float* column, int imageColumn);
     void reRenderAllHistory();
+    void drawFrequencyGrid (juce::Graphics&);
 
     static constexpr int historyColumns = 4096;
     static constexpr int maxColumnsPerFrame = 128;
@@ -53,7 +54,7 @@ private:
     std::vector<int> rowBinLow;   // per screen row, inclusive
     std::vector<int> rowBinHigh;
 
-    std::array<juce::PixelARGB, 256> colourTable { ColourMaps::buildTable (ColourMaps::magma) };
+    std::array<juce::PixelARGB, 256> colourTable { ColourMaps::buildTable (ColourMaps::amberPhosphor) };
 
     float dbFloor = -90.0f;
     float dbCeiling = 0.0f;

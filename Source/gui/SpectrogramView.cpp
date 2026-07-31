@@ -1,4 +1,5 @@
 #include "SpectrogramView.h"
+#include "Theme.h"
 
 SpectrogramView::SpectrogramView (AnalysisEngine& e)
     : engine (e)
@@ -183,7 +184,7 @@ void SpectrogramView::timerCallback()
 
 void SpectrogramView::paint (juce::Graphics& g)
 {
-    g.fillAll (juce::Colour (0xff0a0a0e));
+    g.fillAll (Theme::screenBlack);
 
     if (image.isNull())
         return;
@@ -202,4 +203,33 @@ void SpectrogramView::paint (juce::Graphics& g)
     if (imageWrite > 0)
         g.drawImage (image, tailWidth, 0, imageWrite, height,
                      0, 0, imageWrite, height);
+
+    drawFrequencyGrid (g);
+}
+
+void SpectrogramView::drawFrequencyGrid (juce::Graphics& g)
+{
+    const auto nyquist = engine.getSampleRate() * 0.5;
+
+    if (nyquist <= 0.0)
+        return;
+
+    const auto height = static_cast<float> (getHeight());
+    const auto width = static_cast<float> (getWidth());
+
+    g.setFont (Theme::mono (9.0f));
+
+    // Every 5 kHz while the axis is linear. Phase 6 switches this to decades.
+    for (int kHz = 5; kHz * 1000 < nyquist; kHz += 5)
+    {
+        const auto y = height * (1.0f - static_cast<float> (kHz * 1000.0 / nyquist));
+
+        g.setColour (Theme::amber.withAlpha (0.13f));
+        g.drawHorizontalLine (juce::roundToInt (y), 0.0f, width);
+
+        g.setColour (Theme::amber.withAlpha (0.5f));
+        g.drawText (juce::String (kHz) + "k",
+                    juce::Rectangle<float> (4.0f, y + 1.0f, 34.0f, 11.0f),
+                    juce::Justification::centredLeft);
+    }
 }

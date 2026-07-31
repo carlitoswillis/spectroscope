@@ -28,6 +28,7 @@ public:
 
 private:
     void timerCallback() override;
+    void drawGraticule (juce::Graphics&);
 
     static constexpr int ringCapacity = 8192;
     static constexpr int maxPointsPerFrame = 2048;

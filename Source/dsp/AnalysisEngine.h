@@ -66,6 +66,9 @@ public:
 
     int getNumDroppedBlocks() const noexcept { return ringBuffer.getNumDroppedBlocks(); }
 
+    /** Decaying peak, for a signal-present indicator. */
+    float getRecentPeak() const noexcept { return recentPeak.load (std::memory_order_relaxed); }
+
     static constexpr int hopSize  = 256;
     static constexpr int fftOrder = 11;   // 2048 points, ~23 Hz bins at 48 kHz
 
@@ -84,6 +87,7 @@ private:
     std::vector<float> columnScratch;        // analysis thread only
 
     std::atomic<int> consumerCount { 0 };
+    std::atomic<float> recentPeak { 0.0f };
     bool wasActive = false;
 
     double currentSampleRate = 0.0;
