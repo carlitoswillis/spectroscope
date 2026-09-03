@@ -1,0 +1,3 @@
+# Directories
+
+- [panes](panes/)
