@@ -48,8 +48,15 @@ public:
              position < reader->lengthInSamples && ! threadShouldExit();
              position += hop)
         {
+            // Cast hop to int64 up front so both arguments already share a type and
+            // jmin can deduce Type=int64 without an explicit template argument. An
+            // explicit <juce::int64> forces substitution into JUCE's SIMDRegister
+            // overload of jmin too, which instantiates SIMDRegister<int64> even
+            // though it's never selected -- and that specialisation doesn't exist
+            // for SSE, so it fails to compile on Linux/gcc even though it's fine on
+            // AppleClang/NEON.
             const auto numToRead = static_cast<int> (
-                juce::jmin<juce::int64> (hop, reader->lengthInSamples - position));
+                juce::jmin (static_cast<juce::int64> (hop), reader->lengthInSamples - position));
 
             if (! reader->read (&block, 0, numToRead, position, true, true))
                 break;
