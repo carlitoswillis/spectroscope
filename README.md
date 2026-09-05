@@ -1,5 +1,8 @@
 # Spectroscope
 
+![Spectroscope console with all six instruments lit, Nostromo livery](docs/screenshots/console-nostromo.png)
+*All six instruments running at once: waveform, spectrogram, spectrum, stereo field, loudness chart, and oscilloscope.*
+
 A six-instrument audio analysis console dressed as cassette-futurist broadcast hardware — an
 Audio Unit and VST3 for Ableton, and a standalone macOS app for everything else playing through
 your interface. Audio passes through bit-for-bit untouched at zero latency; the only thing this
@@ -214,6 +217,9 @@ The boxed **UNIT** switch in the header cycles four palettes, live, history inta
 | B | **NOSTROMO** | MU-TH-UR's yellow-green phosphor, hollow outline wordmark, Semiotic-Standard signal red — the ship terminal |
 | C | **TVA** | Aged-paper chassis over a walnut shadow line, burnt-orange placard wordmark, grey-green mint accents — bureaucratic hardware from an office outside time |
 | D | **GRTA** | Ice blue-white in a slate cabinet, salmon alert lamp — the therapy mainframe |
+
+![The same console in the TVA livery, aged-paper chassis with a burnt-orange wordmark](docs/screenshots/console-tva.png)
+*The same six instruments, a completely different livery.*
 
 Every colour, the wordmark treatment, the subtitle line, even the CRT scanline weight is palette
 data — no livery is a tint of another. The choice persists with the session.
